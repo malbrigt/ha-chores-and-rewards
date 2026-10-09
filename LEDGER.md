@@ -313,4 +313,4 @@ Supporting changes:
 
 **Not verified by me:** pixel look and touch feel on the tablet.
 
-**Commit:** (pending)
+**Commit:** f4898f7
