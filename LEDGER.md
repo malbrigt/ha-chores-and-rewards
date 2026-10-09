@@ -38,6 +38,6 @@ Each step records its status, what was built, how it was solved, any deviations,
 
 **Docker check:** `script/dev_onboard.py` onboards the Docker HA headlessly (user `dev`/`dev`) and adds the integration with PIN `1234`. Result: entry `loaded` in HA 2026.10.
 
-**Open:** no GitHub repo or CI run yet.
+**CI:** pushed to the public GitHub repo. lint-test, hassfest and HACS all pass. HACS needed a repo description and topics, set with `gh repo edit`.
 
 **Commit:** (see git log)
