@@ -34,3 +34,5 @@ These fill gaps in the spec. A ✔ means the owner confirmed it.
 | D28 | WS registration | Commands are registered once in `async_setup` (HA can't unregister them). They answer `not_loaded` when no entry is loaded. |
 | D29 | Kid taps | Not written to the audit log (only PIN and admin actions are, per §7). The row still records `status_by="kid"` and `status_at`. |
 | D30 | Live updates | Events carry no data, just "something changed". The panel re-reads `get_state`. Simple, and the payload is small for one family. |
+| D31 | Early close | Closing the week early freezes it: no kid or parent status changes, no adjustments, no new rows, and no midnight losses for the rest of that week. `parent/reopen_week` undoes it; days skipped while frozen stay as they were. |
+| D32 | Late payout | Payouts can be ticked or unticked for any week, including closed ones, because parents forget. Adjustments and status changes only work in an open week. |

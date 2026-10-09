@@ -6,6 +6,7 @@ Every command requires an HA admin user. Parent commands also need a PIN session
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from datetime import date, timedelta
 from functools import wraps
 from typing import Any
 
@@ -28,6 +29,7 @@ from .logic import (
     RuleError,
     Slot,
     Status,
+    is_payout_day,
     payout_warnings,
     transition,
     verify_pin,
@@ -37,6 +39,7 @@ from .logic import (
 from .store import (
     ChoresStore,
     board,
+    ensure_today,
     kid_balances,
     refresh_today_for_chore,
     refresh_today_for_kid,
@@ -74,6 +77,13 @@ def async_register(hass: HomeAssistant) -> None:
         ws_chore_save,
         ws_chore_delete,
         ws_settings_save,
+        ws_parent_set_status,
+        ws_parent_adjust,
+        ws_parent_payouts,
+        ws_parent_payout,
+        ws_parent_close_week,
+        ws_parent_reopen_week,
+        ws_parent_audit,
     ):
         websocket_api.async_register_command(hass, handler)
 
@@ -598,3 +608,191 @@ async def ws_settings_save(hass, connection, msg, store: ChoresStore) -> dict[st
     settings = await store.async_write(write)
     store.sessions.timeout = settings["pin_timeout_seconds"]
     return {"settings": settings}
+
+
+# --- Parent actions (step 7) ----------------------------------------------------
+
+
+def _open_week(repo: Repo, week: date) -> None:
+    if repo.week_status(week) != "open":
+        raise RuleError("week_closed")
+
+
+@command(
+    {
+        vol.Required("type"): P + "parent/set_status",
+        vol.Required("instance_id"): int,
+        vol.Required("status"): vol.In([s.value for s in Status]),
+    }
+)
+async def ws_parent_set_status(hass, connection, msg, store: ChoresStore) -> dict[str, Any]:
+    """Reject, mark done/excused/missed, or reset today (AC-7.4, AC-7.5, D19)."""
+    await store.async_ensure_current()
+    user, today = _user(connection), store.today()
+
+    def write(repo: Repo) -> Instance:
+        inst = _require(repo.get_instance(msg["instance_id"]))
+        _open_week(repo, week_start(inst.day))
+        new = transition(inst, Status(msg["status"]), Actor.PARENT, today)
+        assert new.id is not None
+        repo.set_status(new.id, new.status, by=user)
+        repo.audit(
+            "set_status",
+            user_id=user,
+            entity="instance",
+            entity_id=new.id,
+            before={"status": inst.status.value},
+            after={"status": new.status.value},
+        )
+        return new
+
+    return {"instance": instance_dict(await store.async_write(write))}
+
+
+@command(
+    {
+        vol.Required("type"): P + "parent/adjust",
+        vol.Required("kid_id"): int,
+        vol.Required("currency_id"): int,
+        vol.Required("amount"): vol.All(int, vol.NotIn([0])),
+        vol.Required("note"): vol.All(str, vol.Strip, vol.Length(min=1, max=200)),
+    }
+)
+async def ws_parent_adjust(hass, connection, msg, store: ChoresStore) -> dict[str, Any]:
+    """Adjust this week's balance with a required note (AC-7.6)."""
+    user, week = _user(connection), week_start(store.today())
+
+    def write(repo: Repo) -> int:
+        _require(repo.get_kid(msg["kid_id"]))
+        _find_currency(repo, msg["currency_id"])
+        _open_week(repo, week)
+        adj_id = repo.add_adjustment(
+            week, msg["kid_id"], msg["currency_id"], msg["amount"], msg["note"], by=user
+        )
+        repo.audit(
+            "adjust",
+            user_id=user,
+            entity="kid",
+            entity_id=msg["kid_id"],
+            after={"currency_id": msg["currency_id"], "amount": msg["amount"]},
+            note=msg["note"],
+        )
+        return adj_id
+
+    return {"id": await store.async_write(write)}
+
+
+@command({vol.Required("type"): P + "parent/payouts", vol.Optional("week"): cv.date})
+async def ws_parent_payouts(hass, connection, msg, store: ChoresStore) -> dict[str, Any]:
+    """Amount per kid and currency for a week, with paid state (AC-9.1, D11)."""
+    today = store.today()
+    week = week_start(msg.get("week", today))
+
+    def read(repo: Repo) -> dict[str, Any]:
+        paid = {(p["kid_id"], p["currency_id"]): p for p in repo.list_payouts(week)}
+        currencies = repo.list_currencies()
+        items = []
+        for kid in repo.list_kids():
+            balances = kid_balances(repo, kid.id, week, today)
+            for c in currencies:
+                record = paid.get((kid.id, c.id))
+                due = balances[c.id].total
+                items.append(
+                    {
+                        "kid_id": kid.id,
+                        "currency_id": c.id,
+                        "amount_due": due,
+                        "paid": {"amount": record["amount"], "done_at": record["done_at"]}
+                        if record
+                        else None,
+                        # Earned after the tick; the parent settles it by hand (§5, D11).
+                        "after_payout": max(0, due - record["amount"]) if record else 0,
+                        "payout_day": (week + timedelta(days=c.payout_weekday)).isoformat(),
+                        "is_payout_day": is_payout_day(c, today) and week == week_start(today),
+                    }
+                )
+        return {
+            "week": week.isoformat(),
+            "week_status": repo.week_status(week),
+            "items": items,
+            "adjustments": repo.list_adjustments(week),
+        }
+
+    return await store.async_read(read)
+
+
+@command(
+    {
+        vol.Required("type"): P + "parent/payout",
+        vol.Required("kid_id"): int,
+        vol.Required("currency_id"): int,
+        vol.Required("paid"): bool,
+        vol.Optional("week"): cv.date,
+    }
+)
+async def ws_parent_payout(hass, connection, msg, store: ChoresStore) -> dict[str, Any]:
+    """Tick (or untick) "paid"/"entered". Allowed for closed weeks too: late payouts happen."""
+    user, today = _user(connection), store.today()
+    week = week_start(msg.get("week", today))
+    kid_id, currency_id = msg["kid_id"], msg["currency_id"]
+
+    def write(repo: Repo) -> dict[str, Any]:
+        _require(repo.get_kid(kid_id))
+        _find_currency(repo, currency_id)
+        if msg["paid"]:
+            amount = kid_balances(repo, kid_id, week, today)[currency_id].total
+            repo.record_payout(week, kid_id, currency_id, amount, by=user)
+        else:
+            amount = None
+            repo.undo_payout(week, kid_id, currency_id)
+        repo.audit(
+            "payout" if msg["paid"] else "payout_undo",
+            user_id=user,
+            entity="kid",
+            entity_id=kid_id,
+            after={"week": week.isoformat(), "currency_id": currency_id, "amount": amount},
+        )
+        return {"amount": amount}
+
+    return await store.async_write(write)
+
+
+@command({vol.Required("type"): P + "parent/close_week"})
+async def ws_parent_close_week(hass, connection, msg, store: ChoresStore) -> dict[str, Any]:
+    """Close the current week early (D1). It freezes: no taps, no midnight losses (D31)."""
+    user, week = _user(connection), week_start(store.today())
+
+    def write(repo: Repo) -> None:
+        _open_week(repo, week)
+        repo.close_week(week, by=user)
+        repo.audit("close_week", user_id=user, entity="week", entity_id=week, note="manual")
+
+    await store.async_write(write)
+    return {}
+
+
+@command({vol.Required("type"): P + "parent/reopen_week"})
+async def ws_parent_reopen_week(hass, connection, msg, store: ChoresStore) -> dict[str, Any]:
+    """Undo an early close of the current week (warn, don't block: mistakes happen)."""
+    user, today = _user(connection), store.today()
+    week = week_start(today)
+
+    def write(repo: Repo) -> None:
+        if repo.week_status(week) != "closed":
+            raise RuleError("not_allowed")
+        repo.reopen_week(week)
+        repo.audit("reopen_week", user_id=user, entity="week", entity_id=week)
+        ensure_today(repo, today)
+
+    await store.async_write(write)
+    return {}
+
+
+@command(
+    {
+        vol.Required("type"): P + "parent/audit",
+        vol.Optional("limit", default=100): vol.All(int, vol.Range(min=1, max=1000)),
+    }
+)
+async def ws_parent_audit(hass, connection, msg, store: ChoresStore) -> dict[str, Any]:
+    return {"entries": await store.async_read(lambda repo: repo.list_audit(msg["limit"]))}

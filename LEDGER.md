@@ -10,7 +10,7 @@ Each step records its status, what was built, how it was solved, any deviations,
 | 4 | Store and scheduler | ✅ |
 | 5 | WS contract, PIN, admin CRUD | ✅ |
 | 6 | Kid and read API | ✅ |
-| 7 | Parent actions | ⏳ |
+| 7 | Parent actions | ✅ |
 | 8 | Panel part 1 | ⏳ |
 | 9 | Panel part 2 | ⏳ |
 | 10 | Sensors and release | ⏳ |
@@ -201,3 +201,34 @@ Carry-forward for steps 5–7 (not bugs yet):
 **Tests:** 118 (9 new). store and websocket_api at 100% branch coverage.
 
 **Commit:** 71e071a
+
+---
+
+## Step 7: Parent actions ✅
+**Built:** parent WS commands, all 🔒 and audited:
+- `parent/set_status`
+- `parent/adjust`
+- `parent/payouts`
+- `parent/payout`
+- `parent/close_week`
+- `parent/reopen_week`
+- `parent/audit`
+
+Supporting changes:
+- `db.reopen_week`.
+- The rollover and `ensure_today` skip weeks that were closed early.
+
+**How:**
+- **Status changes:** use `logic.transition(Actor.PARENT)`, so the D19 rules apply. Every change writes an audit row with before and after.
+- **Payouts:** each kid × currency gets `amount_due` (the balance), `paid`, `after_payout` (earned since the tick), `payout_day` and `is_payout_day`. Ticking stores the current amount.
+- **Adjustments:** need a non-blank note and a non-zero amount, and are refused in a closed week.
+
+**Live check:** against Docker HA: adjust +20, tick payout → amount 20, payouts list shows it as paid.
+
+**Decisions added:** D31 (early close freezes the week), D32 (late payouts allowed).
+
+**Tests:** 126 (8 new). websocket_api and store at 100% branch coverage.
+
+**Open:** the user wants a layout discussion before any UI code (step 8).
+
+**Commit:** (pending)

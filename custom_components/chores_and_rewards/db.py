@@ -451,6 +451,12 @@ class Repo:
             [at or now_iso(), by, start.isoformat()],
         )
 
+    def reopen_week(self, start: date) -> None:
+        self._x(
+            "UPDATE weeks SET status = 'open', closed_at = NULL, closed_by = NULL WHERE start = ?",
+            [start.isoformat()],
+        )
+
     # instances
 
     def insert_instances(self, instances: Iterable[Instance]) -> int:

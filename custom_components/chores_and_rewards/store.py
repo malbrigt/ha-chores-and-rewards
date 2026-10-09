@@ -109,6 +109,9 @@ def rollover(repo: Repo, today: date) -> int:
         kids = [k.id for k in repo.list_kids()]
         chores = repo.list_chores()
         for day in days:
+            if repo.week_status(week_start(day)) == "closed":  # closed early: frozen (D31)
+                repo.set_last_finalized(day)
+                continue
             repo.insert_instances(instances_for_day(chores, kids, day))
             for inst in repo.list_instances(day=day):
                 done = finalize(inst)
@@ -124,8 +127,13 @@ def rollover(repo: Repo, today: date) -> int:
 
 
 def ensure_today(repo: Repo, today: date) -> None:
-    """Create today's instances for current kids/chores (safe to call any time)."""
+    """Create today's instances for current kids/chores (safe to call any time).
+
+    Nothing is created in a week that was closed early (D31).
+    """
     repo.ensure_week(week_start(today))
+    if repo.week_status(week_start(today)) == "closed":
+        return
     kids = [k.id for k in repo.list_kids()]
     repo.insert_instances(instances_for_day(repo.list_chores(), kids, today))
 

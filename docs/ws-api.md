@@ -82,8 +82,9 @@ Settings keys:
 | Type | Request | Result |
 |---|---|---|
 | `parent/set_status` | `instance_id`, `status` (`done`, `excused`, `rejected`, `missed`, `pending`) | `{instance}` |
-| `parent/adjust` | `kid_id`, `currency_id`, `amount` (± int), `note` (required) | `{id}` |
-| `parent/payouts` | `week?` | `{week, items: [{kid_id, currency_id, amount_due, paid: {amount, done_at}\|null, payout_day}]}` |
-| `parent/payout` | `kid_id`, `currency_id`, `paid: bool`, `week?` | `{}`. Ticking stores the current balance as the amount (D11). |
-| `parent/close_week` | (nothing) | `{}`. Closes the current week early (D1). |
+| `parent/adjust` | `kid_id`, `currency_id`, `amount` (± int, not 0), `note` (required) | `{id}`. Applies to the current week, which must be open. |
+| `parent/payouts` | `week?` | `{week, week_status, items: [{kid_id, currency_id, amount_due, paid: {amount, done_at}\|null, after_payout, payout_day, is_payout_day}], adjustments}` |
+| `parent/payout` | `kid_id`, `currency_id`, `paid: bool`, `week?` | `{amount}`. Ticking stores the current balance as the amount (D11). Also works for closed weeks, so late payouts are possible. |
+| `parent/close_week` | (nothing) | `{}`. Closes the current week early. The week freezes: no taps, no midnight losses, no new rows (D31). |
+| `parent/reopen_week` | (nothing) | `{}`. Undoes an early close of the current week. Errors with `not_allowed` if the week isn't closed. |
 | `parent/audit` | `limit?` (default 100) | `{entries}` |
