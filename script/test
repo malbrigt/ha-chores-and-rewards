@@ -5,8 +5,8 @@ cd "$(dirname "$0")/.."
 .venv/bin/pytest -q "$@"
 if [ -d tests/js ]; then
   if command -v node >/dev/null; then
-    node --test tests/js/
+    node --test "tests/js/*.test.mjs"
   else
-    docker run --rm -v "$PWD":/w -w /w node:22-alpine node --test tests/js/
+    docker run --rm -v "$PWD":/w -w /w node:22-alpine node --test "tests/js/*.test.mjs"
   fi
 fi

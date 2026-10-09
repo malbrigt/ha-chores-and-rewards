@@ -36,3 +36,7 @@ These fill gaps in the spec. A ✔ means the owner confirmed it.
 | D30 | Live updates | Events carry no data, just "something changed". The panel re-reads `get_state`. Simple, and the payload is small for one family. |
 | D31 | Early close | Closing the week early freezes it: no kid or parent status changes, no adjustments, no new rows, and no midnight losses for the rest of that week. `parent/reopen_week` undoes it; days skipped while frozen stay as they were. |
 | D32 | Late payout | Payouts can be ticked or unticked for any week, including closed ones, because parents forget. Adjustments and status changes only work in an open week. |
+| D33 ✔ | Layout | Overview is 3 kid columns for today. Tapping a name opens that kid's week grid. Parent mode adds extras to the same screens. See `docs/ui-layout.md`. |
+| D34 ✔ | Week grid taps | Kids can tick today's cells in the week grid, with a confirmation. Past days are parent-only. |
+| D35 ✔ | Uncheck guard | Unchecking a chore ticked more than 30 s ago asks for confirmation. Needs `status_at` in the API. |
+| D36 | Sidebar title | "Gjøremål" (Norwegian default). Custom panels can't translate their sidebar title. |

@@ -129,6 +129,7 @@ class Instance:
     status: Status = Status.PENDING
     icon: str = ""
     id: int | None = None  # set once stored
+    status_at: str | None = None  # ISO UTC time of the last status change
 
 
 @dataclass(frozen=True)

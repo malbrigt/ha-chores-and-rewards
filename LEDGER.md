@@ -11,7 +11,7 @@ Each step records its status, what was built, how it was solved, any deviations,
 | 5 | WS contract, PIN, admin CRUD | ✅ |
 | 6 | Kid and read API | ✅ |
 | 7 | Parent actions | ✅ |
-| 8 | Panel part 1 | ⏳ |
+| 8 | Panel part 1 | ✅ |
 | 9 | Panel part 2 | ⏳ |
 | 10 | Sensors and release | ⏳ |
 
@@ -229,6 +229,50 @@ Supporting changes:
 
 **Tests:** 126 (8 new). websocket_api and store at 100% branch coverage.
 
-**Open:** the user wants a layout discussion before any UI code (step 8).
+**Open:** the user wants a layout discussion before any UI code (step 8). Done: `docs/ui-layout.md`, D33–D35.
 
 **Commit:** 5dbf963
+
+---
+
+## Step 8: Panel part 1 ✅
+**Layout talk:** done before coding. Results are in `docs/ui-layout.md`:
+- the overview has 3 kid columns;
+- tapping a name opens a read-only week grid, where only today's cells can be tapped, with a confirmation;
+- parent mode adds extras to the same screens (step 9);
+- unchecking a chore ticked more than 30 s ago asks for confirmation.
+
+**Built:**
+- `frontend/panel.js`: one ES module, no build step. It has:
+  - the overview: per-kid currency meters, chores grouped by slot, a muted bonus section, whole-row tap targets;
+  - the kid week grid, with today's column highlighted and tappable with a confirmation;
+  - the confirmation dialog;
+  - the "Clean hands?" overlay after `wake_seconds` idle, and a return to the overview after `idle_seconds`;
+  - an error toast with translated codes;
+  - nb/en strings and HA theme variables.
+- Panel registration (`panel_custom`, admin-only, `?v=version` cache-busting).
+- The static path is registered once in `async_setup`.
+- `status_at` was added to the instance API.
+- `script/dev_seed.sh`: adds 3 kids and some chores to Docker HA.
+
+**How:**
+- **Data flow:** the panel subscribes to `subscribe`, re-reads `get_state` (debounced 150 ms) on each event and on reconnect, and updates the tapped row straight away.
+- **Rendering:** one `innerHTML` render with `data-action` event delegation. User text is escaped.
+- **Testability:** pure helpers are exported (i18n, progress, ISO week, uncheck rule, slot grouping, date labels), and the element is only defined when `customElements` exists, so Node can import the file.
+
+**Bugs/lessons:**
+- Node 22's `node --test` doesn't accept a directory, so we pass a glob (scripts, CI and CLAUDE.md updated).
+- The dev access token expires after 30 min. Rerun `dev_onboard.py` to refresh it.
+
+**Live check:** against Docker HA:
+- The integration was removed, HA restarted, and the integration added again while HA was running. `panel.js` went from 404 to 200, with no errors, so registering after the web server has started works.
+- `get_panels` shows "Gjøremål" (admin).
+- The seeded board is correct.
+
+**Not verified by me:** the visual rendering. No browser tool is available here. The user checks it in a browser or on the tablet.
+
+**Decisions added:** D33–D36.
+
+**Tests:** 129 Python (3 new) and 13 JS.
+
+**Commit:** (pending)

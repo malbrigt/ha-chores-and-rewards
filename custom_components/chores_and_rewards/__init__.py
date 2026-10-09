@@ -4,15 +4,27 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from pathlib import Path
 
+from homeassistant.components import frontend, panel_custom
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.loader import async_get_integration
 
 from . import websocket_api
-from .const import DB_FILENAME, DOMAIN
+from .const import (
+    DB_FILENAME,
+    DOMAIN,
+    PANEL_ELEMENT,
+    PANEL_ICON,
+    PANEL_TITLE,
+    PANEL_URL,
+    STATIC_URL,
+)
 from .db import Database
 from .store import ChoresStore
 
@@ -24,8 +36,14 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Register WebSocket commands once (HA has no way to unregister them)."""
+    """Register WebSocket commands and the static frontend path once.
+
+    HA has no way to unregister either, so they live for the whole HA run.
+    """
     websocket_api.async_register(hass)
+    await hass.http.async_register_static_paths(
+        [StaticPathConfig(STATIC_URL, str(Path(__file__).parent / "frontend"), cache_headers=False)]
+    )
     return True
 
 
@@ -42,7 +60,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ChoresConfigEntry) -> bo
 
     # Fires at 00:00:00 in HA's local timezone.
     entry.async_on_unload(async_track_time_change(hass, _midnight, hour=0, minute=0, second=0))
+    await _async_register_panel(hass, entry)
     return True
+
+
+async def _async_register_panel(hass: HomeAssistant, entry: ChoresConfigEntry) -> None:
+    """Sidebar panel. The ?v= query busts the browser cache on upgrades."""
+    version = (await async_get_integration(hass, DOMAIN)).version
+    if not frontend.async_panel_exists(hass, PANEL_URL):
+        await panel_custom.async_register_panel(
+            hass,
+            frontend_url_path=PANEL_URL,
+            webcomponent_name=PANEL_ELEMENT,
+            sidebar_title=PANEL_TITLE,
+            sidebar_icon=PANEL_ICON,
+            module_url=f"{STATIC_URL}/panel.js?v={version}",
+            require_admin=True,
+            config={"version": str(version)},
+        )
+    entry.async_on_unload(
+        lambda: frontend.async_remove_panel(hass, PANEL_URL, warn_if_unknown=False)
+    )
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ChoresConfigEntry) -> bool:

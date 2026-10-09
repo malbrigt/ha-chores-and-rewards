@@ -189,3 +189,12 @@ async def test_subscribe_requires_admin(
     await client.send_json_auto_id({"type": "chores_and_rewards/subscribe"})
     msg = await client.receive_json()
     assert not msg["success"] and msg["error"]["code"] == "unauthorized"
+
+
+async def test_instances_carry_status_at(ws):
+    """D35: the panel needs status_at to decide on the uncheck confirmation."""
+    ada = await _family(ws)
+    inst = (await _board(ws))["board"][str(ada)]["chores"][0]
+    assert inst["status_at"] is None
+    res = await ok(ws, "set_done", instance_id=inst["id"], done=True)
+    assert res["instance"]["status_at"].startswith("2026-10-12T08:00")

@@ -721,4 +721,5 @@ def _instance(r: sqlite3.Row) -> Instance:
         icon=r["icon"],
         values={int(k): v for k, v in json.loads(r["values"]).items()},
         status=Status(r["status"]),
+        status_at=r["status_at"],
     )

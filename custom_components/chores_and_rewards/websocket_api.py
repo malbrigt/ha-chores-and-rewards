@@ -199,6 +199,7 @@ def instance_dict(i: Instance) -> dict[str, Any]:
         "icon": i.icon,
         "values": {str(k): v for k, v in i.values.items()},
         "status": i.status.value,
+        "status_at": i.status_at,
     }
 
 
@@ -320,7 +321,7 @@ async def ws_set_done(hass, connection, msg, store: ChoresStore) -> dict[str, An
         new = transition(inst, target, Actor.KID, today)
         assert new.id is not None
         repo.set_status(new.id, new.status, by="kid")
-        return new
+        return _require(repo.get_instance(new.id))
 
     return {"instance": instance_dict(await store.async_write(write))}
 
@@ -644,7 +645,7 @@ async def ws_parent_set_status(hass, connection, msg, store: ChoresStore) -> dic
             before={"status": inst.status.value},
             after={"status": new.status.value},
         )
-        return new
+        return _require(repo.get_instance(new.id))
 
     return {"instance": instance_dict(await store.async_write(write))}
 

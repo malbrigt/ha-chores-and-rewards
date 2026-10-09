@@ -17,3 +17,9 @@ EVENT_UPDATED = f"{DOMAIN}_updated"
 SIGNAL_UPDATED = f"{DOMAIN}_updated"
 
 SYSTEM_USER = "system"
+
+PANEL_URL = "chores-and-rewards"
+PANEL_ELEMENT = "chores-and-rewards-panel"
+PANEL_TITLE = "Gjøremål"  # custom panels can't translate the sidebar title (D36)
+PANEL_ICON = "mdi:broom"
+STATIC_URL = f"/{DOMAIN}_static"
