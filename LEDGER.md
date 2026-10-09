@@ -32,7 +32,7 @@ Each step records its status, what was built, how it was solved, any deviations,
 
 **Deviations**
 - The PIN hash helpers live in `logic.py`, since they are pure and testable.
-- The repo URL is `malbrigt/ha-chores` (D15).
+- The repo was renamed to `malbrigt/ha-chores-and-rewards` (D15).
 
 **Tests:** 15 passing (PIN helpers, user flow, errors, single instance, options reset, setup/unload).
 

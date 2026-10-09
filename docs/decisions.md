@@ -18,5 +18,5 @@ These fill gaps in the spec. A ✔ means the owner confirmed it.
 | D12 | Deletion | Soft delete only. The DB lives at `/config/chores_and_rewards.db`. |
 | D13 | Timeouts | Idle returns to the daily view after 60 s. "Clean hands?" shows on wake after 5 min idle. The PIN locks after 5 min, sliding with activity. 5 wrong PINs → 60 s lockout. All configurable. |
 | D14 | Permissions | The panel and all WS commands are `require_admin`. PIN actions also need a session token. |
-| D15 | Repo URL | The manifest uses the actual remote `malbrigt/ha-chores`, not the spec's `ha-chores-and-rewards`. |
+| D15 ✔ | Repo URL | `malbrigt/ha-chores-and-rewards`, as in the spec. |
 | D16 | Days | A day is a local date in HA's timezone. Catch-up processes each missed day in order. |
