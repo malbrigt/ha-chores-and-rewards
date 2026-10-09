@@ -17,7 +17,15 @@ from homeassistant.util import dt as dt_util
 
 from .const import EVENT_UPDATED, SIGNAL_UPDATED, SYSTEM_USER
 from .db import Database, Repo
-from .logic import days_to_finalize, finalize, instances_for_day, week_start, weeks_to_close
+from .logic import (
+    days_to_finalize,
+    finalize,
+    instances_for_day,
+    is_scheduled,
+    week_start,
+    weeks_to_close,
+)
+from .sessions import PinSessions
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,6 +37,7 @@ class ChoresStore:
         self.hass = hass
         self.db = db
         self.lock = asyncio.Lock()
+        self.sessions = PinSessions()
 
     @staticmethod
     def today() -> date:
@@ -39,6 +48,8 @@ class ChoresStore:
         """Migrate the schema, then catch up on any days missed while HA was off."""
         version = await self.hass.async_add_executor_job(self.db.migrate)
         _LOGGER.debug("Database at schema v%s: %s", version, self.db.path)
+        settings = await self.async_read(lambda repo: repo.get_settings())
+        self.sessions.timeout = settings["pin_timeout_seconds"]
         await self.async_rollover()
 
     async def async_read[T](self, fn: Callable[[Repo], T]) -> T:
@@ -103,3 +114,22 @@ def ensure_today(repo: Repo, today: date) -> None:
     repo.ensure_week(week_start(today))
     kids = [k.id for k in repo.list_kids()]
     repo.insert_instances(instances_for_day(repo.list_chores(), kids, today))
+
+
+def refresh_today_for_chore(repo: Repo, chore_id: int, today: date) -> None:
+    """Bring today's rows in line with an edited/deleted chore (D7). History is untouched."""
+    chore = repo.get_chore(chore_id)
+    kids = [k.id for k in repo.list_kids()]
+    keep = [k for k in kids if chore is not None and is_scheduled(chore, k, today)]
+    repo.delete_pending(chore_id, today, keep_kids=keep)
+    if chore is not None:
+        repo.resync_pending(chore, today)
+    ensure_today(repo, today)
+
+
+def refresh_today_for_kid(repo: Repo, kid_id: int, today: date) -> None:
+    """Drop today's pending rows for an inactive/deleted kid, or create them for an active one."""
+    kid = repo.get_kid(kid_id)
+    if kid is None or not kid.active:
+        repo.delete_pending_for_kid(kid_id, today)
+    ensure_today(repo, today)

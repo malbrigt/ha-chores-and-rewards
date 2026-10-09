@@ -8,7 +8,7 @@ Each step records its status, what was built, how it was solved, any deviations,
 | 2 | Domain logic (`logic.py`) | ✅ |
 | 3 | Persistence (`db.py`) | ✅ |
 | 4 | Store and scheduler | ✅ |
-| 5 | WS contract, PIN, admin CRUD | ⏳ |
+| 5 | WS contract, PIN, admin CRUD | ✅ |
 | 6 | Kid and read API | ⏳ |
 | 7 | Parent actions | ⏳ |
 | 8 | Panel part 1 | ⏳ |
@@ -141,3 +141,34 @@ Carry-forward for steps 5–7 (not bugs yet):
 - WS schemas use `probatio`.
 
 **Tests:** 90.
+
+---
+
+## Step 5: WS contract, PIN, admin CRUD ✅
+**Built:**
+- `docs/ws-api.md`: the full contract for steps 5–7.
+- `sessions.py`: PIN sessions with sliding expiry and a 5-failure → 60 s lockout.
+- `websocket_api.py`:
+  - PIN: `pin/unlock`, `pin/status`, `pin/lock`.
+  - Admin: `admin/list`, kid/currency/chore save and delete (soft), `admin/settings/save`.
+- Store: `refresh_today_for_chore` and `refresh_today_for_kid`, so today's rows follow edits.
+- `script/dev_ws.py`: sends WS commands to Docker HA from the shell.
+
+**How:**
+- **Command decorator:** one `command(schema, parent=)` decorator composes `websocket_command`, `require_admin` and `async_response`. It looks up the store, checks the token, and maps `RuleError` and `NotFound` to error codes.
+- **Schemas:** written with `probatio`.
+- **PIN check:** verifies the scrypt hash in the executor.
+- **Admin writes:** each one runs in a single locked transaction that includes its audit row (before/after) and the refresh of today's rows.
+- **Chore save:** returns the payout-day warnings (AC-5.5).
+
+**Bugs caught by tests:**
+- `id` and `type` in request fields collided with the WS envelope. Renamed (D27).
+- HA's test access token expired when the fake clock jumped ahead. Fixed with the module-level `freeze_time` marker.
+
+**Live check:** against Docker HA, wrong PIN → `wrong_pin`, correct PIN → token, kid saved, list returned.
+
+**Decisions added:** D26–D28.
+
+**Tests:** 109 (19 new). sessions, store and websocket_api at 100% branch coverage.
+
+**Commit:** cec4f3b

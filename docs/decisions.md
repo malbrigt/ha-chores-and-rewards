@@ -29,3 +29,6 @@ These fill gaps in the spec. A ✔ means the owner confirmed it.
 | D23 | Backup | The pre-backup hook only checkpoints the WAL under the lock. Writes aren't blocked during a backup, so kids can still tap. |
 | D24 | Removal | Removing the integration keeps `chores_and_rewards.db`, so no data is lost by accident. |
 | D25 | Store module | `store.py` was added (not in the spec layout). It holds the HA ↔ db/logic glue and the rollover. |
+| D26 | PIN sessions | Live in `sessions.py`, a pure class with an injectable clock. Tokens are in memory only, so an HA restart locks the panel. Failures are counted globally (one shared PIN, one screen). |
+| D27 | WS field names | Never `id` or `type` in requests, since they clash with HA's message envelope. Use `kid_id`, `chore_id`, `currency_id`, `chore_type`. |
+| D28 | WS registration | Commands are registered once in `async_setup` (HA can't unregister them). They answer `not_loaded` when no entry is loaded. |

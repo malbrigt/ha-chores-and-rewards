@@ -7,15 +7,26 @@ from datetime import datetime
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import async_track_time_change
+from homeassistant.helpers.typing import ConfigType
 
-from .const import DB_FILENAME
+from . import websocket_api
+from .const import DB_FILENAME, DOMAIN
 from .db import Database
 from .store import ChoresStore
 
 _LOGGER = logging.getLogger(__name__)
 
 type ChoresConfigEntry = ConfigEntry[ChoresStore]
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register WebSocket commands once (HA has no way to unregister them)."""
+    websocket_api.async_register(hass)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ChoresConfigEntry) -> bool:

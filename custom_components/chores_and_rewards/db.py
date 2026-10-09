@@ -537,6 +537,13 @@ class Repo:
             sql += f" AND kid_id NOT IN ({','.join('?' * len(keep))})"
         self._x(sql, [chore_id, day.isoformat(), *keep])
 
+    def delete_pending_for_kid(self, kid_id: int, day: date) -> None:
+        """Drop a kid's pending rows on a day, e.g. when the kid is deactivated."""
+        self._x(
+            "DELETE FROM instances WHERE kid_id = ? AND day = ? AND status = 'pending'",
+            [kid_id, day.isoformat()],
+        )
+
     # adjustments
 
     def add_adjustment(
