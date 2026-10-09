@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - run: pip install -r requirements_test.txt
+      - run: ruff format --check . && ruff check .
+      - run: pytest -q --cov=custom_components.chores_and_rewards --cov-report=term-missing
+      - run: if [ -d tests/js ]; then node --test tests/js/; fi
+
+  hassfest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: hacs/action@main
+        with:
+          category: integration
+          ignore: brands

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Format + lint. Pass --check to only verify (CI).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+if [ "${1:-}" = "--check" ]; then
+  .venv/bin/ruff format --check .
+  .venv/bin/ruff check .
+else
+  .venv/bin/ruff format .
+  .venv/bin/ruff check --fix .
+fi

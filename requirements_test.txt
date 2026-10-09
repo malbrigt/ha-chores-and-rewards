@@ -1,0 +1,4 @@
+pytest-homeassistant-custom-component==0.13.371
+pytest-cov
+ruff
+home-assistant-frontend==20260930.2

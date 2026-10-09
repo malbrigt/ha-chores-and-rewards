@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Start local Home Assistant in Docker with this integration mounted.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+docker compose up -d
+echo "Home Assistant: http://localhost:8123  (logs: docker compose logs -f)"

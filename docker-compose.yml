@@ -1,0 +1,13 @@
+# Local Home Assistant for manual / E2E testing. UI: http://localhost:8123
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:2026.10
+    container_name: chores-ha
+    ports:
+      - "8123:8123"
+    volumes:
+      - ./dev/config:/config
+      - ./custom_components/chores_and_rewards:/config/custom_components/chores_and_rewards
+    environment:
+      - TZ=Europe/Oslo
+    restart: unless-stopped

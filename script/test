@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Run Python tests, then JS tests (native node, or node in Docker as fallback).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+.venv/bin/pytest -q "$@"
+if [ -d tests/js ]; then
+  if command -v node >/dev/null; then
+    node --test tests/js/
+  else
+    docker run --rm -v "$PWD":/w -w /w node:22-alpine node --test tests/js/
+  fi
+fi

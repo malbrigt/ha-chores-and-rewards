@@ -1,0 +1,14 @@
+{
+  "domain": "chores_and_rewards",
+  "name": "Chores and Rewards",
+  "codeowners": ["@malbrigt"],
+  "config_flow": true,
+  "dependencies": ["frontend", "http", "panel_custom", "websocket_api"],
+  "documentation": "https://github.com/malbrigt/ha-chores",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/malbrigt/ha-chores/issues",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "0.1.0"
+}

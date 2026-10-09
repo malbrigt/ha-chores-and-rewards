@@ -1,0 +1,31 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Gjøremål og belønninger",
+        "description": "Velg en foreldre-PIN (4–8 sifre). Den låser opp forelderhandlinger på gjøremålsskjermen.",
+        "data": { "pin": "Foreldre-PIN", "pin_confirm": "Gjenta PIN" }
+      }
+    },
+    "error": {
+      "invalid_pin": "PIN må være 4–8 sifre.",
+      "pin_mismatch": "PIN-kodene er ikke like."
+    },
+    "abort": {
+      "single_instance_allowed": "Gjøremål og belønninger er allerede satt opp."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Tilbakestill foreldre-PIN",
+        "description": "Velg en ny foreldre-PIN (4–8 sifre).",
+        "data": { "pin": "Ny PIN", "pin_confirm": "Gjenta ny PIN" }
+      }
+    },
+    "error": {
+      "invalid_pin": "PIN må være 4–8 sifre.",
+      "pin_mismatch": "PIN-kodene er ikke like."
+    }
+  }
+}

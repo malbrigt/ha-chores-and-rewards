@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Create .venv with Python 3.14 and install test deps.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+python3.14 -m venv .venv
+.venv/bin/pip install -q --upgrade pip
+.venv/bin/pip install -q -r requirements_test.txt

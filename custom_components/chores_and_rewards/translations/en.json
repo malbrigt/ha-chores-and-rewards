@@ -1,0 +1,31 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Chores and Rewards",
+        "description": "Choose a parent PIN (4–8 digits). It unlocks parent actions on the chores screen.",
+        "data": { "pin": "Parent PIN", "pin_confirm": "Repeat PIN" }
+      }
+    },
+    "error": {
+      "invalid_pin": "The PIN must be 4–8 digits.",
+      "pin_mismatch": "The PINs do not match."
+    },
+    "abort": {
+      "single_instance_allowed": "Chores and Rewards is already set up."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Reset parent PIN",
+        "description": "Set a new parent PIN (4–8 digits).",
+        "data": { "pin": "New PIN", "pin_confirm": "Repeat new PIN" }
+      }
+    },
+    "error": {
+      "invalid_pin": "The PIN must be 4–8 digits.",
+      "pin_mismatch": "The PINs do not match."
+    }
+  }
+}
