@@ -7,7 +7,7 @@ These fill gaps in the spec. A ✔ means the owner confirmed it.
 | D1 ✔ | Week close | Auto-close at Monday 00:00. The parent can also close early. Unpaid payouts are flagged in history; nothing carries over. |
 | D2 ✔ | Balance sensors | Yes: one sensor per kid × currency. |
 | D3 ✔ | PIN setup | Set in the config flow and reset in the options flow (HA admin). Stored as a salted scrypt hash; 4–8 digits. |
-| D4 ✔ | Weekly cap | Set per currency via `cap_mode`. `fixed` is a hard max (e.g. screen time), with an optional per-kid override of the currency default. `pot` means the max is the sum of all chore values scheduled for that kid this week (e.g. allowance). *Owner's reading, confirm if needed.* |
+| D4 ✔ | Weekly cap | Set per currency via `cap_mode`. `fixed` is a hard max (e.g. screen time), with an optional per-kid override of the currency default. `pot` means the max is the sum of all chore values scheduled for that kid this week (e.g. allowance). |
 | D5 | Balance | `min(earned, cap) − lost (only if the currency can be lost) + adjustments`, clamped at ≥0 once on the total. Recomputed from rows, never stored. |
 | D6 | Instances | One row per kid × chore × day, created eagerly at rollover, startup and catch-up. Idempotent through UNIQUE. Name and values are snapshotted onto the row. |
 | D7 | States | `pending → done / missed / excused / rejected`. Excused earns 0 and loses 0. Rejected counts as missed. Pending rows for today re-sync when their chore is edited. |

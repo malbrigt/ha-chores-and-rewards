@@ -36,8 +36,8 @@ Each step records its status, what was built, how it was solved, any deviations,
 
 **Tests:** 15 passing (PIN helpers, user flow, errors, single instance, options reset, setup/unload).
 
-**Open**
-- The Docker HA load check is still pending, because the Docker daemon isn't running.
-- No GitHub repo or CI run yet; `gh` is not installed.
+**Docker check:** `script/dev_onboard.py` onboards the Docker HA headlessly (user `dev`/`dev`) and adds the integration with PIN `1234`. Result: entry `loaded` in HA 2026.10.
+
+**Open:** no GitHub repo or CI run yet.
 
 **Commit:** (see git log)
