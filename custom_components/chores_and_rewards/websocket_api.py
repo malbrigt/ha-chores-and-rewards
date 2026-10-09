@@ -11,22 +11,37 @@ from typing import Any
 
 import probatio as vol
 from homeassistant.components import websocket_api
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.helpers import config_validation as cv
 
-from .const import CONF_PIN_HASH, DOMAIN
+from .const import CONF_PIN_HASH, DOMAIN, EVENT_UPDATED
 from .db import Repo
 from .logic import (
+    Actor,
+    Balance,
     CapMode,
     Chore,
     ChoreType,
     Currency,
+    Instance,
     Kid,
     RuleError,
     Slot,
+    Status,
     payout_warnings,
+    transition,
     verify_pin,
+    week_days,
+    week_start,
 )
-from .store import ChoresStore, refresh_today_for_chore, refresh_today_for_kid
+from .store import (
+    ChoresStore,
+    board,
+    kid_balances,
+    refresh_today_for_chore,
+    refresh_today_for_kid,
+    week_grid,
+)
 
 P = f"{DOMAIN}/"
 TOKEN = {vol.Required("token"): str}
@@ -44,6 +59,10 @@ class NotFound(Exception):
 def async_register(hass: HomeAssistant) -> None:
     """Register all commands. Called once from async_setup."""
     for handler in (
+        ws_subscribe,
+        ws_get_state,
+        ws_get_week,
+        ws_set_done,
         ws_pin_unlock,
         ws_pin_status,
         ws_pin_lock,
@@ -156,6 +175,144 @@ def chore_dict(c: Chore) -> dict[str, Any]:
         "active": c.active,
         "sort": c.sort,
     }
+
+
+def instance_dict(i: Instance) -> dict[str, Any]:
+    return {
+        "id": i.id,
+        "kid_id": i.kid_id,
+        "chore_id": i.chore_id,
+        "day": i.day.isoformat(),
+        "type": i.type.value,
+        "slot": i.slot.value,
+        "name": i.name,
+        "icon": i.icon,
+        "values": {str(k): v for k, v in i.values.items()},
+        "status": i.status.value,
+    }
+
+
+def balance_dict(b: Balance) -> dict[str, Any]:
+    return {
+        "earned": b.earned,
+        "lost": b.lost,
+        "adjustments": b.adjustments,
+        "cap": b.cap,
+        "total": b.total,
+    }
+
+
+def balances_dict(balances: dict[int, Balance]) -> dict[str, Any]:
+    return {str(cid): balance_dict(b) for cid, b in balances.items()}
+
+
+# --- Kid and read API (step 6) -------------------------------------------------
+
+
+@websocket_api.websocket_command({vol.Required("type"): P + "subscribe"})
+@websocket_api.require_admin
+@callback
+def ws_subscribe(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Push {event: "updated"} after any change; the panel then re-reads (AC-6.1)."""
+
+    @callback
+    def forward(_event: Event) -> None:
+        connection.send_message(websocket_api.event_message(msg["id"], {"event": "updated"}))
+
+    # Stored subscriptions are removed by HA on unsubscribe or disconnect.
+    connection.subscriptions[msg["id"]] = hass.bus.async_listen(EVENT_UPDATED, forward)
+    connection.send_result(msg["id"])
+
+
+@command({vol.Required("type"): P + "get_state", vol.Optional("day"): cv.date}, parent=False)
+async def ws_get_state(hass, connection, msg, store: ChoresStore) -> dict[str, Any]:
+    await store.async_ensure_current()
+    today = store.today()
+    day = msg.get("day", today)
+
+    def read(repo: Repo) -> dict[str, Any]:
+        return {
+            "today": today.isoformat(),
+            "day": day.isoformat(),
+            "week": week_start(day).isoformat(),
+            "week_status": repo.week_status(week_start(day)),
+            "kids": [kid_dict(k) for k in repo.list_kids()],
+            "currencies": [currency_dict(c) for c in repo.list_currencies()],
+            "settings": repo.get_settings(),
+            "board": {
+                str(kid_id): {
+                    "chores": [instance_dict(i) for i in data.chores],
+                    "bonus": [instance_dict(i) for i in data.bonus],
+                    "balances": balances_dict(data.balances),
+                }
+                for kid_id, data in board(repo, day, today).items()
+            },
+        }
+
+    return await store.async_read(read)
+
+
+@command(
+    {
+        vol.Required("type"): P + "get_week",
+        vol.Required("kid_id"): int,
+        vol.Optional("week"): cv.date,
+    },
+    parent=False,
+)
+async def ws_get_week(hass, connection, msg, store: ChoresStore) -> dict[str, Any]:
+    today = store.today()
+    week = week_start(msg.get("week", today))
+
+    def read(repo: Repo) -> dict[str, Any]:
+        _require(repo.get_kid(msg["kid_id"]))
+        rows = week_grid(repo, msg["kid_id"], week)
+        return {
+            "week": week.isoformat(),
+            "week_status": repo.week_status(week),
+            "days": [d.isoformat() for d in week_days(week)],
+            "rows": [
+                {
+                    "chore_id": r["chore_id"],
+                    "name": r["name"],
+                    "type": r["type"].value,
+                    "slot": r["slot"].value,
+                    "cells": {d.isoformat(): st.value for d, st in r["cells"].items()},
+                }
+                for r in rows
+            ],
+            "balances": balances_dict(kid_balances(repo, msg["kid_id"], week, today)),
+        }
+
+    return await store.async_read(read)
+
+
+@command(
+    {
+        vol.Required("type"): P + "set_done",
+        vol.Required("instance_id"): int,
+        vol.Required("done"): bool,
+    },
+    parent=False,
+)
+async def ws_set_done(hass, connection, msg, store: ChoresStore) -> dict[str, Any]:
+    """Kid tap: done or undo, today only, no approval (AC-6.1, AC-6.2)."""
+    await store.async_ensure_current()
+    today = store.today()
+    target = Status.DONE if msg["done"] else Status.PENDING
+
+    def write(repo: Repo) -> Instance:
+        inst = _require(repo.get_instance(msg["instance_id"]))
+        if repo.week_status(week_start(inst.day)) != "open":
+            raise RuleError("week_closed")
+        new = transition(inst, target, Actor.KID, today)
+        assert new.id is not None
+        repo.set_status(new.id, new.status, by="kid")
+        return new
+
+    return {"instance": instance_dict(await store.async_write(write))}
 
 
 # --- PIN ----------------------------------------------------------------------

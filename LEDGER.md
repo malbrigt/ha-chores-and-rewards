@@ -9,7 +9,7 @@ Each step records its status, what was built, how it was solved, any deviations,
 | 3 | Persistence (`db.py`) | ✅ |
 | 4 | Store and scheduler | ✅ |
 | 5 | WS contract, PIN, admin CRUD | ✅ |
-| 6 | Kid and read API | ⏳ |
+| 6 | Kid and read API | ✅ |
 | 7 | Parent actions | ⏳ |
 | 8 | Panel part 1 | ⏳ |
 | 9 | Panel part 2 | ⏳ |
@@ -172,3 +172,32 @@ Carry-forward for steps 5–7 (not bugs yet):
 **Tests:** 109 (19 new). sessions, store and websocket_api at 100% branch coverage.
 
 **Commit:** 4c947c5 (0795bdb was pushed by mistake without the new files; 4c947c5 completes it)
+
+---
+
+## Step 6: Kid and read API ✅
+**Built:**
+- WS commands: `subscribe`, `get_state`, `get_week`, `set_done`.
+- In `store.py`, as read models:
+  - `kid_balances`: pot from snapshots plus schedule, cap resolved per kid.
+  - `board`: a typed `KidBoard` per kid.
+  - `week_grid`.
+- `async_ensure_current`: a safety-net rollover on reads and taps.
+
+**How:**
+- **Subscribe:** forwards the HA bus event `chores_and_rewards_updated` to the client via `connection.subscriptions`, which HA cleans up on disconnect.
+- **Kid taps:** use `logic.transition(Actor.KID)` inside a locked transaction and are refused if the week is closed.
+- **Sorting:** expected chores morning → afternoon → anytime, bonus chores separate.
+- **Dates in requests:** parsed with HA's `cv.date`.
+
+**Bugs caught by tests:**
+- `probatio.Date()` returns a string, not a date. Switched to `cv.date`.
+- The pushed event can come before the command's result. Tests accept either order, and the contract notes it.
+
+**Live check:** against Docker HA, a chore save returned a payout warning (every-day chore paying screen time), and `get_state` returned the board.
+
+**Decisions added:** D29, D30.
+
+**Tests:** 118 (9 new). store and websocket_api at 100% branch coverage.
+
+**Commit:** (pending)

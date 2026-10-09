@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date, timedelta
 
 from homeassistant.core import HomeAssistant, callback
@@ -18,10 +19,17 @@ from homeassistant.util import dt as dt_util
 from .const import EVENT_UPDATED, SIGNAL_UPDATED, SYSTEM_USER
 from .db import Database, Repo
 from .logic import (
+    SLOT_ORDER,
+    Balance,
+    ChoreType,
+    Instance,
+    compute_balance,
     days_to_finalize,
     finalize,
     instances_for_day,
     is_scheduled,
+    resolve_cap,
+    week_pot,
     week_start,
     weeks_to_close,
 )
@@ -68,6 +76,12 @@ class ChoresStore:
     def async_notify(self) -> None:
         self.hass.bus.async_fire(EVENT_UPDATED)
         async_dispatcher_send(self.hass, SIGNAL_UPDATED)
+
+    async def async_ensure_current(self) -> None:
+        """Safety net: run the rollover if the midnight job was missed (e.g. clock jump)."""
+        last = await self.async_read(lambda repo: repo.last_finalized())
+        if last is None or last < self.today() - timedelta(days=1):
+            await self.async_rollover()
 
     async def async_rollover(self) -> None:
         """Finalize past days, close finished weeks, create today's chores. Idempotent."""
@@ -133,3 +147,61 @@ def refresh_today_for_kid(repo: Repo, kid_id: int, today: date) -> None:
     if kid is None or not kid.active:
         repo.delete_pending_for_kid(kid_id, today)
     ensure_today(repo, today)
+
+
+# --- Read models --------------------------------------------------------------
+
+
+def _sort_key(inst: Instance) -> tuple[int, int, int]:
+    """Bonus last; expected by slot (morning → afternoon → anytime); then creation order."""
+    bonus = 1 if inst.type is ChoreType.BONUS else 0
+    return (bonus, SLOT_ORDER.index(inst.slot), inst.id or 0)
+
+
+def kid_balances(repo: Repo, kid_id: int, week: date, today: date) -> dict[int, Balance]:
+    """Balance per active currency for one kid and week (D4, D5)."""
+    instances = repo.list_instances(week=week, kid_id=kid_id)
+    chores = repo.list_chores()
+    maxes = repo.kid_max(kid_id)
+    out = {}
+    for currency in repo.list_currencies():
+        pot = week_pot(instances, chores, kid_id, week, today, currency.id)
+        cap = resolve_cap(currency, maxes.get(currency.id), pot)
+        adjustments = repo.adjustment_total(week, kid_id, currency.id)
+        out[currency.id] = compute_balance(currency, instances, adjustments, cap)
+    return out
+
+
+@dataclass(frozen=True)
+class KidBoard:
+    chores: list[Instance]  # expected, ordered by slot
+    bonus: list[Instance]
+    balances: dict[int, Balance]
+
+
+def board(repo: Repo, day: date, today: date) -> dict[int, KidBoard]:
+    """Per kid: expected chores and bonus chores for `day`, plus that week's balances."""
+    week = week_start(day)
+    rows = sorted(repo.list_instances(day=day), key=_sort_key)
+    out = {}
+    for kid in repo.list_kids():
+        mine = [i for i in rows if i.kid_id == kid.id]
+        out[kid.id] = KidBoard(
+            chores=[i for i in mine if i.type is ChoreType.EXPECTED],
+            bonus=[i for i in mine if i.type is ChoreType.BONUS],
+            balances=kid_balances(repo, kid.id, week, today),
+        )
+    return out
+
+
+def week_grid(repo: Repo, kid_id: int, week: date) -> list[dict]:
+    """One row per chore seen that week, with a status cell per day (AC-8.3)."""
+    rows: dict[int, dict] = {}
+    for inst in sorted(repo.list_instances(week=week, kid_id=kid_id), key=_sort_key):
+        row = rows.setdefault(
+            inst.chore_id,
+            {"chore_id": inst.chore_id, "type": inst.type, "slot": inst.slot, "cells": {}},
+        )
+        row["name"] = inst.name  # latest snapshot wins
+        row["cells"][inst.day] = inst.status
+    return list(rows.values())

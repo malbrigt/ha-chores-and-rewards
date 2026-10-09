@@ -32,3 +32,5 @@ These fill gaps in the spec. A ✔ means the owner confirmed it.
 | D26 | PIN sessions | Live in `sessions.py`, a pure class with an injectable clock. Tokens are in memory only, so an HA restart locks the panel. Failures are counted globally (one shared PIN, one screen). |
 | D27 | WS field names | Never `id` or `type` in requests, since they clash with HA's message envelope. Use `kid_id`, `chore_id`, `currency_id`, `chore_type`. |
 | D28 | WS registration | Commands are registered once in `async_setup` (HA can't unregister them). They answer `not_loaded` when no entry is loaded. |
+| D29 | Kid taps | Not written to the audit log (only PIN and admin actions are, per §7). The row still records `status_by="kid"` and `status_at`. |
+| D30 | Live updates | Events carry no data, just "something changed". The panel re-reads `get_state`. Simple, and the payload is small for one family. |

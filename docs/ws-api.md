@@ -69,10 +69,10 @@ Settings keys:
 
 | Type | Request | Result |
 |---|---|---|
-| `get_state` | `day?` (default today) | `{today, week, kids, currencies, settings, board: {kid_id: {chores: [instance], bonus: [instance], balances: {cid: balance}}}}` |
-| `get_week` | `kid_id`, `week?` (a Monday) | `{week, days: [date], rows: [{chore_id, name, slot, type, cells: {date: status}}], balances}` |
-| `set_done` | `instance_id`, `done: bool` | `{instance}`. Kid rules: today only (AC-6.1, AC-6.2). |
-| `subscribe` | (nothing) | Pushes `{event: "updated"}` after any change. |
+| `get_state` | `day?` (default today) | `{today, day, week, week_status, kids, currencies, settings, board: {kid_id: {chores: [instance], bonus: [instance], balances: {cid: balance}}}}`. `chores` holds expected chores ordered morning → afternoon → anytime. Also runs the catch-up rollover if the midnight job was missed. |
+| `get_week` | `kid_id`, `week?` (any date in that week) | `{week, week_status, days: [date], rows: [{chore_id, name, slot, type, cells: {date: status}}], balances}` |
+| `set_done` | `instance_id`, `done: bool` | `{instance}`. Kid rules: today only, and the week must be open (AC-6.1, AC-6.2). |
+| `subscribe` | (nothing) | Pushes `{event: "updated"}` after any change; the panel then re-reads `get_state`. The event can arrive before the result of the command that caused it. |
 
 - `instance` = `{id, kid_id, chore_id, day, type, slot, name, icon, values, status}`
 - `balance` = `{earned, lost, adjustments, cap, total}`

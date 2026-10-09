@@ -1,0 +1,191 @@
+"""WebSocket: board state, kid taps, week grid, live updates (step 6)."""
+
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
+
+import pytest
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+from .ws_helpers import chore, err, ok, unlock
+
+pytestmark = pytest.mark.freeze_time("2026-10-12 08:00:00+00:00")  # Mon 10:00 Oslo
+OSLO = ZoneInfo("Europe/Oslo")
+MON = date(2026, 10, 12)
+TUE = date(2026, 10, 13)
+SCREEN, MONEY = "1", "2"
+
+
+async def _family(ws, screen_max=60):
+    """Ada with a morning + afternoon expected chore and a daily bonus chore."""
+    token = await unlock(ws)
+    ada = (await ok(ws, "admin/kid/save", token=token, name="Ada", max={SCREEN: screen_max}))["id"]
+    await ok(ws, "admin/chore/save", token=token, **chore([ada]))  # afternoon 30 min / 10 kr
+    await ok(
+        ws,
+        "admin/chore/save",
+        token=token,
+        **chore([ada], name="Re opp sengen", slot="morning", values={SCREEN: 10}),
+    )
+    await ok(
+        ws,
+        "admin/chore/save",
+        token=token,
+        **chore(
+            [ada],
+            name="Vaske vinduer",
+            chore_type="bonus",
+            slot="anytime",
+            weekdays=[],
+            values={MONEY: 50},
+        ),
+    )
+    return ada
+
+
+async def _board(ws, **kw):
+    return await ok(ws, "get_state", **kw)
+
+
+async def test_get_state_board(ws):
+    """AC-8.1: expected chores by slot, bonus apart; AC-8.2 balance data."""
+    ada = await _family(ws)
+    state = await _board(ws)
+    assert (state["today"], state["week"], state["week_status"]) == (
+        "2026-10-12",
+        "2026-10-12",
+        "open",
+    )
+    assert [k["name"] for k in state["kids"]] == ["Ada"]
+    kid = state["board"][str(ada)]
+    assert [(c["name"], c["slot"]) for c in kid["chores"]] == [
+        ("Re opp sengen", "morning"),
+        ("Oppvask", "afternoon"),
+    ]
+    assert [b["name"] for b in kid["bonus"]] == ["Vaske vinduer"]
+    assert kid["balances"][SCREEN] == {
+        "earned": 0,
+        "lost": 0,
+        "adjustments": 0,
+        "cap": 60,
+        "total": 0,
+    }
+    # Pot: 5 × 10 kr dishes + 7 × 50 kr windows.
+    assert kid["balances"][MONEY]["cap"] == 5 * 10 + 7 * 50
+
+
+async def test_tap_done_undo_and_live_update(ws):
+    """AC-6.1, AC-6.2, AC-5.2."""
+    ada = await _family(ws)
+    await ws.send_json_auto_id({"type": "chores_and_rewards/subscribe"})
+    sub = await ws.receive_json()
+    assert sub["success"]
+
+    dishes = (await _board(ws))["board"][str(ada)]["chores"][1]
+    await ws.send_json_auto_id(
+        {"type": "chores_and_rewards/set_done", "instance_id": dishes["id"], "done": True}
+    )
+    # The pushed event and the command result may arrive in either order.
+    msgs = [await ws.receive_json(), await ws.receive_json()]
+    result = next(m for m in msgs if m["type"] == "result")
+    event = next(m for m in msgs if m["type"] == "event")
+    assert result["result"]["instance"]["status"] == "done"
+    assert event["id"] == sub["id"] and event["event"] == {"event": "updated"}
+
+    bal = (await _board(ws))["board"][str(ada)]["balances"]
+    assert bal[SCREEN]["total"] == 30 and bal[MONEY]["total"] == 10
+
+    await ws.send_json_auto_id(
+        {"type": "chores_and_rewards/set_done", "instance_id": dishes["id"], "done": False}
+    )
+    assert {(await ws.receive_json())["type"] for _ in range(2)} == {"result", "event"}
+    assert (await _board(ws))["board"][str(ada)]["balances"][SCREEN]["total"] == 0
+
+
+async def test_bonus_earns_and_cap_applies(ws):
+    """AC-4.1: screen time stops at the kid's max."""
+    ada = await _family(ws, screen_max=35)
+    kid = (await _board(ws))["board"][str(ada)]
+    for inst in [*kid["chores"], *kid["bonus"]]:
+        await ok(ws, "set_done", instance_id=inst["id"], done=True)
+    bal = (await _board(ws))["board"][str(ada)]["balances"]
+    assert bal[SCREEN]["earned"] == 40 and bal[SCREEN]["total"] == 35
+    assert bal[MONEY]["total"] == 60
+
+
+async def test_midnight_loss_and_past_undo_refused(hass, ws, freezer):
+    """AC-3.2, AC-5.3, AC-6.2."""
+    ada = await _family(ws)
+    kid = (await _board(ws))["board"][str(ada)]
+    bed, dishes = kid["chores"]
+    await ok(ws, "set_done", instance_id=dishes["id"], done=True)
+
+    freezer.move_to(datetime(2026, 10, 13, 0, 0, 0, tzinfo=OSLO))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    assert await err(ws, "set_done", instance_id=dishes["id"], done=False) == "not_today"
+    assert await err(ws, "set_done", instance_id=bed["id"], done=True) == "not_today"
+    state = await _board(ws)
+    assert state["today"] == "2026-10-13"
+    bal = state["board"][str(ada)]["balances"]
+    assert (bal[SCREEN]["earned"], bal[SCREEN]["lost"], bal[SCREEN]["total"]) == (30, 10, 20)
+    assert bal[MONEY]["lost"] == 0  # allowance can't be lost (AC-3.3)
+
+
+async def test_get_week_grid(hass, ws, freezer):
+    """AC-8.3."""
+    ada = await _family(ws)
+    dishes = (await _board(ws))["board"][str(ada)]["chores"][1]
+    await ok(ws, "set_done", instance_id=dishes["id"], done=True)
+    freezer.move_to(datetime(2026, 10, 13, 0, 0, 0, tzinfo=OSLO))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    week = await ok(ws, "get_week", kid_id=ada)
+    assert week["week"] == "2026-10-12" and len(week["days"]) == 7
+    rows = {r["name"]: r for r in week["rows"]}
+    assert list(rows) == ["Re opp sengen", "Oppvask", "Vaske vinduer"]
+    assert rows["Oppvask"]["cells"] == {"2026-10-12": "done", "2026-10-13": "pending"}
+    assert rows["Re opp sengen"]["cells"]["2026-10-12"] == "missed"
+    assert rows["Vaske vinduer"]["cells"]["2026-10-12"] == "pending"  # never missed
+    assert week["balances"][SCREEN]["total"] == 20
+
+    prev = await ok(ws, "get_week", kid_id=ada, week="2026-10-07")
+    assert prev["week"] == "2026-10-05" and prev["rows"] == [] and prev["week_status"] is None
+    assert await err(ws, "get_week", kid_id=999) == "not_found"
+
+
+async def test_get_state_other_day(ws):
+    ada = await _family(ws)
+    state = await _board(ws, day="2026-10-11")
+    assert state["day"] == "2026-10-11" and state["week"] == "2026-10-05"
+    assert state["board"][str(ada)]["chores"] == []
+
+
+async def test_safety_net_rollover_on_read(ws):
+    """If the midnight job never ran, a read catches up."""
+    ada = await _family(ws)
+    store = ws.entry.runtime_data
+    await store.async_write(lambda r: r.set_last_finalized(MON - timedelta(days=3)))
+    await _board(ws)
+    assert await store.async_read(lambda r: r.last_finalized()) == MON - timedelta(days=1)
+    assert ada
+
+
+async def test_closed_week_refuses_taps(ws):
+    ada = await _family(ws)
+    dishes = (await _board(ws))["board"][str(ada)]["chores"][1]
+    store = ws.entry.runtime_data
+    await store.async_write(lambda r: r.close_week(MON, by="test"))
+    assert await err(ws, "set_done", instance_id=dishes["id"], done=True) == "week_closed"
+    assert await err(ws, "set_done", instance_id=9999, done=True) == "not_found"
+
+
+async def test_subscribe_requires_admin(
+    hass, hass_ws_client, setup_entry, hass_read_only_access_token
+):
+    await setup_entry()
+    client = await hass_ws_client(hass, hass_read_only_access_token)
+    await client.send_json_auto_id({"type": "chores_and_rewards/subscribe"})
+    msg = await client.receive_json()
+    assert not msg["success"] and msg["error"]["code"] == "unauthorized"

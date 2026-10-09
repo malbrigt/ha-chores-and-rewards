@@ -6,43 +6,12 @@ import pytest
 
 from custom_components.chores_and_rewards.logic import Status
 
-from .conftest import TEST_PIN
+from .ws_helpers import TEST_PIN, chore, err, ok, unlock
 
-P = "chores_and_rewards/"
 MON = date(2026, 10, 12)  # Monday
-
 
 # Frozen from the start, so HA's test access token is issued in "fake now" too.
 pytestmark = pytest.mark.freeze_time("2026-10-12 08:00:00+00:00")  # Mon 10:00 Oslo
-
-
-@pytest.fixture
-async def ws(freezer, hass, hass_ws_client, setup_entry):
-    entry = await setup_entry()
-    client = await hass_ws_client(hass)
-    client.entry = entry
-    return client
-
-
-async def call(client, type_, **data):
-    await client.send_json_auto_id({"type": P + type_, **data})
-    return await client.receive_json()
-
-
-async def ok(client, type_, **data):
-    msg = await call(client, type_, **data)
-    assert msg["success"], msg
-    return msg["result"]
-
-
-async def err(client, type_, **data):
-    msg = await call(client, type_, **data)
-    assert not msg["success"], msg
-    return msg["error"]["code"]
-
-
-async def unlock(client):
-    return (await ok(client, "pin/unlock", pin=TEST_PIN))["token"]
 
 
 # --- PIN ----------------------------------------------------------------------
@@ -150,18 +119,6 @@ async def test_currency_crud(ws):
         )
         == "not_found"
     )
-
-
-def chore(kid_ids, **kw):
-    base = {
-        "name": "Oppvask",
-        "chore_type": "expected",
-        "slot": "afternoon",
-        "weekdays": [0, 1, 2, 3, 4],
-        "kid_ids": kid_ids,
-        "values": {"1": 30, "2": 10},
-    }
-    return {**base, **kw}
 
 
 async def _today(client):

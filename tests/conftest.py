@@ -42,3 +42,15 @@ async def setup_entry(hass, pin_hash):
         return entry
 
     return _setup
+
+
+@pytest.fixture
+async def ws(freezer, hass, hass_ws_client, setup_entry):
+    """Set up the integration and return an admin WS client (client.entry = config entry).
+
+    Use with a module-level freeze_time marker so the test token is issued in fake time.
+    """
+    entry = await setup_entry()
+    client = await hass_ws_client(hass)
+    client.entry = entry
+    return client
