@@ -21,6 +21,10 @@ The screen is a landscape kitchen tablet. There are 3 kids, 2 of whom mainly use
 ```
 - One column per kid. The whole chore row is the tap target.
 - Tapping a kid's name opens that kid's week.
+- Header: `‹ Fredag 9. okt ›`, plus an "I dag" button when another day is shown.
+  - You can move between days within the current Mon–Sun week.
+  - Past days are read-only for kids. Future days are a read-only preview of the schedule.
+  - Idle returns to today.
 
 ## Kid week (tap a name)
 ```

@@ -249,6 +249,7 @@ async def ws_get_state(hass, connection, msg, store: ChoresStore) -> dict[str, A
             "day": day.isoformat(),
             "week": week_start(day).isoformat(),
             "week_status": repo.week_status(week_start(day)),
+            "is_preview": day > today,
             "kids": [kid_dict(k) for k in repo.list_kids()],
             "currencies": [currency_dict(c) for c in repo.list_currencies()],
             "settings": repo.get_settings(),

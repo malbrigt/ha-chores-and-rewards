@@ -19,6 +19,9 @@ export const STRINGS = {
     week: "Uke {n}",
     lost: "−{n} tapt",
     back: "Tilbake",
+    today: "I dag",
+    prev_day: "Forrige dag",
+    next_day: "Neste dag",
     loading: "Laster …",
     no_kids: "Ingen barn er lagt til ennå.",
     no_chores: "Ingen gjøremål i dag.",
@@ -42,6 +45,9 @@ export const STRINGS = {
     week: "Week {n}",
     lost: "−{n} lost",
     back: "Back",
+    today: "Today",
+    prev_day: "Previous day",
+    next_day: "Next day",
     loading: "Loading …",
     no_kids: "No kids added yet.",
     no_chores: "No chores today.",
@@ -124,6 +130,32 @@ export function cellSymbol(status) {
 
 const LOCALE = { nb: "nb-NO", en: "en-GB" };
 
+/** Add days to a YYYY-MM-DD date. */
+export function addDays(dateStr, n) {
+  const d = new Date(`${dateStr}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Monday of the week containing a YYYY-MM-DD date. */
+export function mondayOf(dateStr) {
+  return addDays(dateStr, -((new Date(`${dateStr}T12:00:00Z`).getUTCDay() + 6) % 7));
+}
+
+/** True if `day` is in the same Mon–Sun week as `today`. */
+export function sameWeek(today, day) {
+  return mondayOf(today) === mondayOf(day);
+}
+
+/** Day navigation on the overview, limited to the current Mon–Sun week (D37). */
+export function dayNav(today, day) {
+  const monday = mondayOf(today);
+  const sunday = addDays(monday, 6);
+  const prev = addDays(day, -1);
+  const next = addDays(day, 1);
+  return { prev: prev >= monday ? prev : null, next: next <= sunday ? next : null };
+}
+
 /** "Fredag 9. okt." style header date. */
 export function formatDay(dateStr, lang) {
   const d = new Date(`${dateStr}T12:00:00Z`);
@@ -171,7 +203,17 @@ const STYLES = `
     color: var(--app-header-text-color, var(--text-primary-color, #fff));
     font-size: 1.3rem;
   }
-  header .title { flex: 1; }
+  header .title { flex: 1; display: flex; align-items: center; gap: 8px; }
+  header .nav { font-size: 1.8rem; width: 44px; height: 44px; text-align: center; }
+  header .nav[disabled] { opacity: 0.3; }
+  header .today-btn {
+    margin-left: 12px;
+    padding: 4px 12px;
+    border: 1px solid currentColor;
+    border-radius: 16px;
+    font-size: 1rem;
+  }
+  header .other-day { font-style: italic; }
   header button { color: inherit; }
   button {
     font: inherit;
@@ -251,7 +293,7 @@ const STYLES = `
   .chore.missed .box,
   .chore.rejected .box { border-color: var(--error-color); color: var(--error-color); }
   .chore.excused .box { color: var(--secondary-text-color); }
-  .chore[disabled] { cursor: default; }
+  .chore[disabled] { cursor: default; opacity: 0.75; }
   .bonus { margin-top: 18px; padding-top: 6px; border-top: 2px dashed var(--divider-color); opacity: 0.6; }
   .bonus .chore { min-height: 48px; font-size: 1rem; }
   .bonus .box { border-radius: 50%; width: 28px; height: 28px; }
@@ -333,6 +375,7 @@ export class ChoresPanel extends Base {
     this._state = null; // get_state result
     this._week = null; // get_week result for the open kid
     this._view = { name: "overview" };
+    this._day = null; // overview day; null = follow today
     this._dialog = null; // {text, onYes}
     this._toast = null;
     this._cleanHands = false;
@@ -422,7 +465,12 @@ export class ChoresPanel extends Base {
 
   async _reload() {
     try {
-      this._state = await this._ws("get_state");
+      this._state = await this._ws("get_state", this._day ? { day: this._day } : {});
+      // A new week (midnight Sunday) or a stale day snaps back to today.
+      if (this._day && !sameWeek(this._state.today, this._day)) {
+        this._day = null;
+        this._state = await this._ws("get_state");
+      }
       if (this._view.name === "week") {
         this._week = await this._ws("get_week", { kid_id: this._view.kidId });
       }
@@ -430,6 +478,11 @@ export class ChoresPanel extends Base {
       this._showError(err);
     }
     this._render();
+  }
+
+  async _goDay(day) {
+    this._day = day && day !== this._state?.today ? day : null;
+    await this._reload();
   }
 
   async _openWeek(kidId) {
@@ -467,6 +520,9 @@ export class ChoresPanel extends Base {
       this._cleanHands = false;
     } else if (action === "kid") {
       this._openWeek(Number(el.dataset.kid));
+      return;
+    } else if (action === "day") {
+      this._goDay(el.dataset.day || null);
       return;
     } else if (action === "back") {
       this._view = { name: "overview" };
@@ -506,8 +562,10 @@ export class ChoresPanel extends Base {
     if (!settings) return;
     const idle = Date.now() - this._lastActivity;
     let changed = false;
-    if (this._view.name !== "overview" && idle > settings.idle_seconds * 1000) {
+    if ((this._view.name !== "overview" || this._day) && idle > settings.idle_seconds * 1000) {
       this._view = { name: "overview" };
+      this._day = null;
+      this._scheduleReload();
       this._week = null;
       this._dialog = null;
       changed = true;
@@ -552,7 +610,7 @@ export class ChoresPanel extends Base {
         title = `${escapeHtml(kid?.name ?? "")} · ${t(L, "week", { n: week })}`;
         body = this._renderWeek();
       } else {
-        title = escapeHtml(formatDay(s.today, L));
+        title = this._dayHeader();
         body = this._renderOverview();
       }
     }
@@ -568,6 +626,19 @@ export class ChoresPanel extends Base {
       ${this._cleanHands ? this._renderCleanHands() : ""}
       ${this._toast ? `<div class="toast">${escapeHtml(this._toast)}</div>` : ""}`;
     this._syncMenuButton();
+  }
+
+  _dayHeader() {
+    const L = this._lang;
+    const { today, day } = this._state;
+    const nav = dayNav(today, day);
+    const arrow = (target, label, text) =>
+      `<button class="nav" data-action="day" data-day="${target ?? ""}" aria-label="${t(L, label)}"
+        ${target ? "" : "disabled"}>${text}</button>`;
+    const back = day !== today ? `<button class="today-btn" data-action="day" data-day="">${t(L, "today")}</button>` : "";
+    return `${arrow(nav.prev, "prev_day", "‹")}<span class="${day === today ? "" : "other-day"}">${escapeHtml(
+      formatDay(day, L),
+    )}</span>${arrow(nav.next, "next_day", "›")}${back}`;
   }
 
   _renderOverview() {
@@ -600,7 +671,9 @@ export class ChoresPanel extends Base {
   }
 
   _choreRow(inst) {
-    const tappable = inst.status === "done" || inst.status === "pending";
+    // Kids can only change today (D8); other days are read-only (parents: step 9).
+    const isToday = this._state.day === this._state.today;
+    const tappable = isToday && inst.id && (inst.status === "done" || inst.status === "pending");
     return `<button class="chore ${inst.status}" data-action="toggle" data-id="${inst.id}"
       ${tappable ? "" : "disabled"}><span class="box">${inst.status === "pending" ? "" : cellSymbol(inst.status)}</span>
       <span>${escapeHtml(inst.name)}</span></button>`;

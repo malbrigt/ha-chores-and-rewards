@@ -40,3 +40,4 @@ These fill gaps in the spec. A ✔ means the owner confirmed it.
 | D34 ✔ | Week grid taps | Kids can tick today's cells in the week grid, with a confirmation. Past days are parent-only. |
 | D35 ✔ | Uncheck guard | Unchecking a chore ticked more than 30 s ago asks for confirmation. Needs `status_at` in the API. |
 | D36 | Sidebar title | "Gjøremål" (Norwegian default). Custom panels can't translate their sidebar title. |
+| D37 ✔ | Day switching | The overview can switch days within the current week. Past days are read-only for kids (parents: step 9). Future days show an unsaved preview built from the schedule. Idle returns to today. |

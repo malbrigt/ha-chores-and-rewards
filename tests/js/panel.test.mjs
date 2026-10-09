@@ -109,3 +109,19 @@ test("formatDay and weekdayLetter", () => {
   assert.equal(weekdayLetter("2026-10-12", "nb"), "M");
   assert.equal(weekdayLetter("2026-10-18", "en"), "S");
 });
+
+test("day navigation stays inside the current week (D37)", async () => {
+  const { addDays, dayNav, mondayOf, sameWeek } = await import(
+    "../../custom_components/chores_and_rewards/frontend/panel.js"
+  );
+  assert.equal(addDays("2026-12-31", 1), "2027-01-01");
+  assert.equal(addDays("2026-10-25", -1), "2026-10-24"); // DST night
+  assert.equal(mondayOf("2026-10-09"), "2026-10-05");
+  assert.equal(mondayOf("2026-10-05"), "2026-10-05");
+  assert.equal(mondayOf("2026-10-11"), "2026-10-05");
+  assert.deepEqual(dayNav("2026-10-09", "2026-10-09"), { prev: "2026-10-08", next: "2026-10-10" });
+  assert.deepEqual(dayNav("2026-10-09", "2026-10-05"), { prev: null, next: "2026-10-06" });
+  assert.deepEqual(dayNav("2026-10-09", "2026-10-11"), { prev: "2026-10-10", next: null });
+  assert.ok(sameWeek("2026-10-09", "2026-10-11"));
+  assert.ok(!sameWeek("2026-10-11", "2026-10-12"));
+});

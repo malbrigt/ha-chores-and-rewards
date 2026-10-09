@@ -198,3 +198,16 @@ async def test_instances_carry_status_at(ws):
     assert inst["status_at"] is None
     res = await ok(ws, "set_done", instance_id=inst["id"], done=True)
     assert res["instance"]["status_at"].startswith("2026-10-12T08:00")
+
+
+async def test_get_state_future_day_preview(ws):
+    """D37: a future day shows the schedule as an unsaved preview."""
+    ada = await _family(ws)
+    state = await _board(ws, day="2026-10-14")  # Wednesday
+    assert state["is_preview"]
+    kid = state["board"][str(ada)]
+    assert [c["name"] for c in kid["chores"]] == ["Re opp sengen", "Oppvask"]
+    assert all(c["id"] is None and c["status"] == "pending" for c in kid["chores"])
+    assert not (await _board(ws))["is_preview"]
+    store = ws.entry.runtime_data
+    assert await store.async_read(lambda r: r.list_instances(day=date(2026, 10, 14))) == []

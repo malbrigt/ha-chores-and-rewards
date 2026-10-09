@@ -188,11 +188,18 @@ class KidBoard:
 
 
 def board(repo: Repo, day: date, today: date) -> dict[int, KidBoard]:
-    """Per kid: expected chores and bonus chores for `day`, plus that week's balances."""
+    """Per kid: expected chores and bonus chores for `day`, plus that week's balances.
+
+    Future days have no rows yet, so they get an unsaved preview from the schedule (D37).
+    """
     week = week_start(day)
-    rows = sorted(repo.list_instances(day=day), key=_sort_key)
+    kids = repo.list_kids()
+    found = repo.list_instances(day=day)
+    if day > today and not found:
+        found = instances_for_day(repo.list_chores(), [k.id for k in kids], day)
+    rows = sorted(found, key=_sort_key)
     out = {}
-    for kid in repo.list_kids():
+    for kid in kids:
         mine = [i for i in rows if i.kid_id == kid.id]
         out[kid.id] = KidBoard(
             chores=[i for i in mine if i.type is ChoreType.EXPECTED],

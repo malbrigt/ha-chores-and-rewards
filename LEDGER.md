@@ -276,3 +276,12 @@ Supporting changes:
 **Tests:** 129 Python (3 new) and 13 JS.
 
 **Commit:** dd68a78
+
+---
+
+## Step 8b: Day switching on the overview ✅ (user request)
+- **Panel:** ‹ › arrows in the header and an "I dag" button. The range is limited to the current Mon–Sun week (`dayNav`, `mondayOf` and `sameWeek` are pure and tested). Rows are read-only on other days. Idle and the week change snap back to today.
+- **Backend:** `get_state(day=future)` returns an unsaved preview from the schedule plus `is_preview`. Nothing is written for future days.
+- **Decision:** D37.
+- **Tests:** 130 Python (+1) and 14 JS (+1).
+- **Commit:** (pending)
