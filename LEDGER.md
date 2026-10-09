@@ -7,7 +7,7 @@ Each step records its status, what was built, how it was solved, any deviations,
 | 1 | Scaffold and baseline | ✅ |
 | 2 | Domain logic (`logic.py`) | ✅ |
 | 3 | Persistence (`db.py`) | ✅ |
-| 4 | Store and scheduler | ⏳ |
+| 4 | Store and scheduler | ✅ |
 | 5 | WS contract, PIN, admin CRUD | ⏳ |
 | 6 | Kid and read API | ⏳ |
 | 7 | Parent actions | ⏳ |
@@ -87,5 +87,38 @@ Each step records its status, what was built, how it was solved, any deviations,
 **Decisions added:** D21 (JSON values column), D22 (seed data).
 
 **Tests:** 80 total (24 new for db). Run with `-W error::ResourceWarning` clean. db.py at 99% branch coverage.
+
+**Commit:** (see git log)
+
+---
+
+## Step 4: Store and scheduler ✅
+**Built:**
+- `store.py`: `ChoresStore` with `async_read`, `async_write` (locked), `async_notify` (bus event + dispatcher) and `async_rollover`. The rollover itself is a pure sync function.
+- `__init__.py`: opens the DB at `/config/chores_and_rewards.db`, catches up on startup, and runs the midnight job via `async_track_time_change`. The store lives on `entry.runtime_data`.
+- `backup.py`: checkpoints the WAL before a backup.
+- `diagnostics.py`: counts, schema, open weeks, settings. The PIN hash is redacted.
+
+**How:**
+- **Rollover:** one transaction. For each unfinalized past day: insert instances (rows for days HA was off are created then), then `finalize`, so pending expected chores become missed.
+- **Weeks:** weeks before the current one are auto-closed and audited as `system`. Then today's rows are created.
+- **Idempotency:** `last_finalized` in meta plus INSERT OR IGNORE make it safe to rerun.
+- **Fresh install:** `last_finalized` starts at yesterday.
+
+**Tests:** 9 new, using the fake clock (`freezer`) and `async_fire_time_changed`:
+- normal midnight
+- a done chore survives midnight
+- HA off Fri evening → Tue (week closed, Sat/Sun created and missed, bonus never missed)
+- restart twice on the same day (idempotent)
+- unload stops the job
+- DST night
+- backup hook
+- diagnostics redaction
+
+Total 89; coverage 99% branch.
+
+**Docker:** reloaded in HA 2026.10. The DB was created at schema v1 and the entry is loaded. `dev_onboard.py` was fixed for HA that is already onboarded.
+
+**Decisions added:** D23–D25.
 
 **Commit:** (see git log)

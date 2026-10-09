@@ -3,19 +3,36 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.event import async_track_time_change
+
+from .const import DB_FILENAME
+from .db import Database
+from .store import ChoresStore
 
 _LOGGER = logging.getLogger(__name__)
 
+type ChoresConfigEntry = ConfigEntry[ChoresStore]
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up Chores and Rewards from a config entry."""
-    _LOGGER.debug("Setting up Chores and Rewards")
+
+async def async_setup_entry(hass: HomeAssistant, entry: ChoresConfigEntry) -> bool:
+    """Open the database, catch up, and schedule the midnight rollover."""
+    store = ChoresStore(hass, Database(hass.config.path(DB_FILENAME)))
+    await store.async_start()
+    entry.runtime_data = store
+
+    @callback
+    def _midnight(_now: datetime) -> None:
+        hass.async_create_task(store.async_rollover(), "chores_and_rewards rollover")
+
+    # Fires at 00:00:00 in HA's local timezone.
+    entry.async_on_unload(async_track_time_change(hass, _midnight, hour=0, minute=0, second=0))
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload a config entry."""
+async def async_unload_entry(hass: HomeAssistant, entry: ChoresConfigEntry) -> bool:
+    """Unload a config entry. Listeners are removed via async_on_unload."""
     return True

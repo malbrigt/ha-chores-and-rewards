@@ -5,6 +5,7 @@ Idempotent enough for dev use. Writes an access token to dev/config/.dev_token. 
 
 import json
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -56,7 +57,12 @@ def login():
 
 
 def main():
-    steps = {s["step"]: s["done"] for s in call("GET", "/api/onboarding")}
+    try:
+        steps = {s["step"]: s["done"] for s in call("GET", "/api/onboarding")}
+    except urllib.error.HTTPError as err:  # 404 once onboarding is finished
+        if err.code != 404:
+            raise
+        steps = {"user": True}
     if not steps.get("user"):
         res = call(
             "POST",

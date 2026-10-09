@@ -57,7 +57,7 @@ async def test_options_flow_resets_pin(hass):
     assert verify_pin("9999", entry.data[CONF_PIN_HASH])
 
 
-async def test_setup_and_unload(hass):
+async def test_setup_and_unload(hass):  # uses temp config dir via conftest
     entry = MockConfigEntry(domain=DOMAIN, data={CONF_PIN_HASH: hash_pin("1234")})
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)

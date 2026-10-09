@@ -26,3 +26,6 @@ These fill gaps in the spec. A ✔ means the owner confirmed it.
 | D20 | Losses | Only expected chores cost; a rejected bonus earns 0 and loses 0. |
 | D21 | Instance values | Stored as a JSON column on `instances`, not a separate `instance_values` table. Simpler, and it's always read as a whole. |
 | D22 | Seed data | Currencies are seeded with Norwegian names: Skjermtid (min, Friday, can be lost, fixed cap) and Ukepenger (kr, Saturday, can't be lost, pot cap). Screen time has no default max until a parent sets one. |
+| D23 | Backup | The pre-backup hook only checkpoints the WAL under the lock. Writes aren't blocked during a backup, so kids can still tap. |
+| D24 | Removal | Removing the integration keeps `chores_and_rewards.db`, so no data is lost by accident. |
+| D25 | Store module | `store.py` was added (not in the spec layout). It holds the HA ↔ db/logic glue and the rollover. |
