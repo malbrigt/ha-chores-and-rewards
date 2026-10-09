@@ -284,4 +284,4 @@ Supporting changes:
 - **Backend:** `get_state(day=future)` returns an unsaved preview from the schedule plus `is_preview`. Nothing is written for future days.
 - **Decision:** D37.
 - **Tests:** 130 Python (+1) and 14 JS (+1).
-- **Commit:** (pending)
+- **Commit:** 79ced0c
