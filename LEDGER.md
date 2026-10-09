@@ -200,4 +200,4 @@ Carry-forward for steps 5–7 (not bugs yet):
 
 **Tests:** 118 (9 new). store and websocket_api at 100% branch coverage.
 
-**Commit:** (pending)
+**Commit:** 71e071a
