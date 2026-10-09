@@ -1,5 +1,6 @@
 // Pure helpers in frontend/panel.js. Run: node --test tests/js/
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import {
@@ -156,4 +157,16 @@ test("parseOptionalInt and weekdayName", async () => {
   assert.equal(parseOptionalInt(undefined), null);
   assert.equal(weekdayName(0, "nb"), "mandag");
   assert.equal(weekdayName(6, "en"), "Sunday");
+});
+
+test("parentActions matches the shared fixture used by the Python tests", async () => {
+  const { parentActions, addDays } = await import(
+    "../../custom_components/chores_and_rewards/frontend/panel.js"
+  );
+  const fixture = JSON.parse(readFileSync(new URL("../fixtures/parent_actions.json", import.meta.url)));
+  const today = "2026-10-09";
+  for (const c of fixture.cases) {
+    const inst = { id: 1, type: c.type, status: c.status, day: addDays(today, c.day) };
+    assert.deepEqual(parentActions(inst, today), c.actions, JSON.stringify(c));
+  }
 });

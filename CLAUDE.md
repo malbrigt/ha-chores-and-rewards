@@ -17,7 +17,9 @@ The source of truth is `chores-app-spec.md`. Gap decisions are in `docs/decision
 - Use only stable public HA APIs. For schemas use `import probatio as vol`; HA 2026.10 no longer ships voluptuous.
 - `script/lint --check` also runs mypy and must stay clean.
 - Every behaviour change needs a test. Reference acceptance IDs (e.g. `AC-5.2`) in test names or docstrings.
-- At the end of each step: lint and tests green, `LEDGER.md` updated, one concise commit. Run `git status` before pushing; new files need `git add -A`, because `commit -a` skips untracked files.
+- At the end of each step: lint, tests and `script/smoke` green, `LEDGER.md` updated, one concise commit (no separate "ledger hash" commits; the ledger names the commit subject).
+- Rules that exist on both server and panel must share a fixture in `tests/fixtures/` that is tested on both sides (see `parent_actions.json`).
+- Every new WS command must be added to `docs/ws-api.md`; `tests/test_contracts.py` enforces it. Run `git status` before pushing; new files need `git add -A`, because `commit -a` skips untracked files.
 
 ## Non-goals (spec §10). Do not add:
 - Gamification: leaderboards, badges, streaks, confetti, points counters on bonus chores.

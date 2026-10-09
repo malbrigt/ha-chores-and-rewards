@@ -5,6 +5,7 @@ Every command requires an HA admin user. Parent commands also need a PIN session
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Awaitable, Callable
 from datetime import date, timedelta
 from functools import wraps
@@ -115,7 +116,8 @@ def handler(*, parent: bool) -> Callable[[Handler], Any]:
                 result = await func(hass, connection, msg, store)
             except RuleError as err:
                 connection.send_error(msg["id"], err.code, err.code)
-            except NotFound:
+            except NotFound, sqlite3.IntegrityError:
+                # IntegrityError: a foreign key to a missing kid/currency/chore.
                 connection.send_error(msg["id"], "not_found", "Not found")
             else:
                 connection.send_result(msg["id"], result)

@@ -1,0 +1,16 @@
+{
+  "_comment": "Shared by pytest (logic.transition) and node (panel.js parentActions) so the UI never offers an action the server refuses. day: -1 = yesterday, 0 = today (same week).",
+  "order": ["done", "excused", "rejected", "pending", "missed"],
+  "cases": [
+    {"type": "expected", "status": "pending", "day": 0, "actions": ["done", "excused"]},
+    {"type": "expected", "status": "done", "day": 0, "actions": ["excused", "rejected", "pending"]},
+    {"type": "expected", "status": "excused", "day": 0, "actions": ["done", "pending"]},
+    {"type": "expected", "status": "missed", "day": -1, "actions": ["done", "excused"]},
+    {"type": "expected", "status": "done", "day": -1, "actions": ["excused", "rejected", "missed"]},
+    {"type": "expected", "status": "excused", "day": -1, "actions": ["done", "missed"]},
+    {"type": "expected", "status": "rejected", "day": -1, "actions": ["done", "excused", "missed"]},
+    {"type": "bonus", "status": "pending", "day": -1, "actions": ["done", "excused"]},
+    {"type": "bonus", "status": "done", "day": 0, "actions": ["excused", "rejected", "pending"]},
+    {"type": "bonus", "status": "rejected", "day": -1, "actions": ["done", "excused"]}
+  ]
+}

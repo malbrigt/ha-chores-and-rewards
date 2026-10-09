@@ -218,3 +218,10 @@ async def test_admin_actions_are_audited(ws):
     assert [e["action"] for e in log] == ["settings_save", "kid_save", "kid_save"]
     assert log[1]["before"] and '"Ada B"' in log[1]["after"]
     assert all(e["user_id"] for e in log)
+
+
+async def test_kid_max_unknown_currency_is_not_found(ws):
+    token = await unlock(ws)
+    code = await err(ws, "admin/kid/save", token=token, name="Ada", max={"99": 10})
+    assert code == "not_found"
+    assert (await ok(ws, "admin/list", token=token))["kids"] == []  # rolled back

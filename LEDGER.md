@@ -314,3 +314,29 @@ Supporting changes:
 **Not verified by me:** pixel look and touch feel on the tablet.
 
 **Commit:** f4898f7
+
+---
+
+## Review after step 9 ✅
+Reviewed steps 5–9 (API, sessions, panel). Fixed:
+- **Rule drift risk:** the parent status rules lived in both `logic.transition` (Python) and `parentActions` (JS). Both are now tested against one shared fixture, `tests/fixtures/parent_actions.json`, so the UI can't offer an action the server refuses.
+- **Contract drift risk:** `tests/test_contracts.py` checks that `docs/ws-api.md` lists exactly the registered WS commands (24).
+- **Bug:** a kid save with a max for an unknown currency raised a DB integrity error and returned `unknown_error`. The handler now maps `IntegrityError` to `not_found`, and the transaction rolls back. Test added.
+- **Process:** dropped the separate "ledger hash" commits (7 of 30 commits were noise).
+
+Checked, no action needed:
+- XSS: all user text goes through `escapeHtml`.
+- Thread safety: one connection per executor job, writes under the lock.
+- Tokens: in memory only, sliding expiry.
+- Scrypt runs in the executor.
+
+Raised with the user (open):
+- The kitchen tablet runs as an HA **admin** (spec §11), which gives kids access to HA settings from the sidebar. Suggestion: allow kid commands for any logged-in user, keep PIN and admin commands token-gated, and run the tablet as a non-admin user.
+- Brute force: a 4-digit PIN with 5 tries per 60 s takes about 33 h to exhaust. An escalating lockout would be cheap to add.
+
+What we should have done from the start:
+- Render smoke tests (happy-dom) from step 1, rather than shipping step 8 with no render check.
+- Shared fixtures for any rule that exists on both sides.
+- A docs ↔ code contract test as soon as the contract was written.
+
+**Tests:** 142 Python, 17 JS unit and 6 smoke.
