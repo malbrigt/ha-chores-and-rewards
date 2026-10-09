@@ -40,7 +40,7 @@ Each step records its status, what was built, how it was solved, any deviations,
 
 **CI:** pushed to the public GitHub repo. lint-test, hassfest and HACS all pass. HACS needed a repo description and topics, set with `gh repo edit`.
 
-**Commit:** (see git log)
+**Commit:** 9b939bf (+ 64bdc66, 370d10d, 0f3c8a3)
 
 ---
 
@@ -66,7 +66,7 @@ Each step records its status, what was built, how it was solved, any deviations,
 
 **Tests:** 51 logic and PIN tests, 100% branch coverage on `logic.py`. Total 56.
 
-**Commit:** (see git log)
+**Commit:** 813fdfd
 
 ---
 
@@ -88,7 +88,7 @@ Each step records its status, what was built, how it was solved, any deviations,
 
 **Tests:** 80 total (24 new for db). Run with `-W error::ResourceWarning` clean. db.py at 99% branch coverage.
 
-**Commit:** (see git log)
+**Commit:** fdaa523
 
 ---
 
@@ -121,4 +121,23 @@ Total 89; coverage 99% branch.
 
 **Decisions added:** D23–D25.
 
-**Commit:** (see git log)
+**Commit:** 8def5d0
+
+---
+
+## Review after step 4 ✅
+Reviewed everything built so far. Fixed:
+- **Schema library:** HA 2026.10 uses `probatio`; `voluptuous` was only present as a side-dependency of other packages. The config flow now imports `probatio as vol`. This was a latent import-crash risk.
+- **Type checking:** added mypy (`script/lint` and CI). It found 3 typing issues in `db.py`, now fixed.
+- **Week for new rows:** `insert_instances` now derives each row's week from its day, so a caller can no longer pass the wrong week. Test added.
+- **Midnight task:** the job runs as an entry-tracked task, so unload waits for a running rollover.
+- **CI pinning:** pinned `hassfest` (commit SHA), `hacs/action@22.5.0`, `ruff` and `mypy`, so CI can't change underneath us.
+- **Dev HA timezone:** set to Europe/Oslo to match the family.
+- **Ledger:** commit hashes are filled in.
+
+Carry-forward for steps 5–7 (not bugs yet):
+- Kid or chore CRUD must call `ensure_today` and `delete_pending`/`resync_pending`, or today's view goes stale.
+- Read endpoints should run a cheap "catch-up needed?" check as a safety net in case the midnight job is missed.
+- WS schemas use `probatio`.
+
+**Tests:** 90.

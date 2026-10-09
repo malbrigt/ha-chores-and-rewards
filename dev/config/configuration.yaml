@@ -1,3 +1,6 @@
+homeassistant:
+  time_zone: Europe/Oslo
+
 default_config:
 
 logger:

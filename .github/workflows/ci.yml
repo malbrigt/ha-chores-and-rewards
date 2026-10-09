@@ -17,6 +17,7 @@ jobs:
           node-version: "22"
       - run: pip install -r requirements_test.txt
       - run: ruff format --check . && ruff check .
+      - run: mypy custom_components/chores_and_rewards
       - run: pytest -q --cov=custom_components.chores_and_rewards --cov-report=term-missing
       - run: if [ -d tests/js ]; then node --test tests/js/; fi
 
@@ -24,12 +25,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: home-assistant/actions/hassfest@master
+      - uses: home-assistant/actions/hassfest@06749dd8c0b54f350bc69c8752456cee498808a3
 
   hacs:
     runs-on: ubuntu-latest
     steps:
-      - uses: hacs/action@main
+      - uses: hacs/action@22.5.0
         with:
           category: integration
           ignore: brands

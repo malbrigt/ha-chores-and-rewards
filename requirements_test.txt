@@ -1,4 +1,5 @@
 pytest-homeassistant-custom-component==0.13.371
-pytest-cov
-ruff
 home-assistant-frontend==20260930.2
+pytest-cov
+ruff==0.16.10
+mypy==2.4.0

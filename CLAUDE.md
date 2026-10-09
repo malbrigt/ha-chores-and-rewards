@@ -13,7 +13,8 @@ The source of truth is `chores-app-spec.md`. Gap decisions are in `docs/decision
 - `logic.py` has no HA imports, and all chore rules live there.
 - Run every sqlite call through `hass.async_add_executor_job`, and serialize writes with the store lock.
 - Frontend is one plain JS file (`frontend/panel.js`). No framework and no build step. Export pure helpers so `node --test` can test them.
-- Use only stable public HA APIs.
+- Use only stable public HA APIs. For schemas use `import probatio as vol`; HA 2026.10 no longer ships voluptuous.
+- `script/lint --check` also runs mypy and must stay clean.
 - Every behaviour change needs a test. Reference acceptance IDs (e.g. `AC-5.2`) in test names or docstrings.
 - At the end of each step: lint and tests green, `LEDGER.md` updated, one concise commit.
 

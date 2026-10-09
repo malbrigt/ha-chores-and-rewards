@@ -22,7 +22,6 @@ from custom_components.chores_and_rewards.logic import (
     Slot,
     Status,
     instances_for_day,
-    week_start,
 )
 
 MON = date(2026, 10, 5)
@@ -211,7 +210,7 @@ def _setup_instances(db):
     ada = db.run(lambda r: r.add_kid("Ada"))
     cid = db.run(lambda r: r.add_chore(_chore({ada})))
     chores = db.run(lambda r: r.list_chores())
-    db.run(lambda r: r.insert_instances(instances_for_day(chores, [ada], MON), week_start(MON)))
+    db.run(lambda r: r.insert_instances(instances_for_day(chores, [ada], MON)))
     return ada, cid
 
 
@@ -219,7 +218,7 @@ def test_insert_instances_is_idempotent(db):
     """AC-6.3 / D6: re-creating a day never duplicates rows."""
     ada, cid = _setup_instances(db)
     chores = db.run(lambda r: r.list_chores())
-    again = db.run(lambda r: r.insert_instances(instances_for_day(chores, [ada], MON), MON))
+    again = db.run(lambda r: r.insert_instances(instances_for_day(chores, [ada], MON)))
     assert again == 0
     rows = db.run(lambda r: r.list_instances(day=MON))
     assert len(rows) == 1 and rows[0].values == {1: 30, 2: 10} and rows[0].id
@@ -241,7 +240,7 @@ def test_resync_pending_keeps_history(db):
     ada, cid = _setup_instances(db)
     tue = date(2026, 10, 7)
     chores = db.run(lambda r: r.list_chores())
-    db.run(lambda r: r.insert_instances(instances_for_day(chores, [ada], tue), MON))
+    db.run(lambda r: r.insert_instances(instances_for_day(chores, [ada], tue)))
     done = db.run(lambda r: r.list_instances(day=MON))[0]
     db.run(lambda r: r.set_status(done.id, Status.DONE, by="kid"))
     edited = replace(chores[0], name="Dishes!", values={1: 99})
@@ -258,7 +257,7 @@ def test_delete_pending(db):
     chore = db.run(lambda r: r.get_chore(cid))
     db.run(
         lambda r: r.insert_instances(
-            instances_for_day([replace(chore, kid_ids=frozenset({ada, bo}))], [ada, bo], MON), MON
+            instances_for_day([replace(chore, kid_ids=frozenset({ada, bo}))], [ada, bo], MON)
         )
     )
     db.run(lambda r: r.delete_pending(cid, MON, keep_kids=[bo]))
@@ -324,3 +323,15 @@ def test_audit_log(db):
 def test_foreign_keys_enforced(db):
     with pytest.raises(sqlite3.IntegrityError):
         db.run(lambda r: r.set_kid_max(999, 1, 10))
+
+
+def test_insert_instances_derives_week_per_day(db):
+    """Instances spanning two weeks land in the right week rows."""
+    ada = db.run(lambda r: r.add_kid("Ada"))
+    db.run(lambda r: r.add_chore(_chore({ada}, weekdays=frozenset())))
+    chores = db.run(lambda r: r.list_chores())
+    sun, mon = date(2026, 10, 11), date(2026, 10, 12)
+    rows = [*instances_for_day(chores, [ada], sun), *instances_for_day(chores, [ada], mon)]
+    db.run(lambda r: r.insert_instances(rows))
+    assert db.run(lambda r: r.open_weeks()) == [MON, mon]
+    assert len(db.run(lambda r: r.list_instances(week=mon))) == 1

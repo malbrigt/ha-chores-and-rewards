@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import closing, contextmanager
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
-from .logic import CapMode, Chore, ChoreType, Currency, Instance, Kid, Slot, Status
+from .logic import CapMode, Chore, ChoreType, Currency, Instance, Kid, Slot, Status, week_start
 
 # --- Schema -------------------------------------------------------------------
 
@@ -416,7 +416,9 @@ class Repo:
     def delete_chore(self, chore_id: int) -> None:
         self._soft_delete("chores", chore_id)
 
-    def _set_chore_links(self, chore_id: int, kid_ids: Iterable[int], values: dict) -> None:
+    def _set_chore_links(
+        self, chore_id: int, kid_ids: Iterable[int], values: Mapping[int, int]
+    ) -> None:
         self.conn.executemany(
             "INSERT INTO chore_kids (chore_id, kid_id) VALUES (?, ?)",
             [(chore_id, k) for k in kid_ids],
@@ -451,15 +453,20 @@ class Repo:
 
     # instances
 
-    def insert_instances(self, instances: Iterable[Instance], week: date) -> int:
-        """Insert new instances; existing (kid, chore, day) rows are left alone."""
-        self.ensure_week(week)
+    def insert_instances(self, instances: Iterable[Instance]) -> int:
+        """Insert new instances; existing (kid, chore, day) rows are left alone.
+
+        The week is derived from each instance's day, so callers can't mismatch them.
+        """
+        rows = list(instances)
+        for week in {week_start(i.day) for i in rows}:
+            self.ensure_week(week)
         cur = self.conn.executemany(
             "INSERT OR IGNORE INTO instances (week, kid_id, chore_id, day, type, slot, name, icon,"
             ' "values", status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
                 (
-                    week.isoformat(),
+                    week_start(i.day).isoformat(),
                     i.kid_id,
                     i.chore_id,
                     i.day.isoformat(),
@@ -470,7 +477,7 @@ class Repo:
                     _dump_values(i.values),
                     i.status.value,
                 )
-                for i in instances
+                for i in rows
             ],
         )
         return cur.rowcount
@@ -478,7 +485,8 @@ class Repo:
     def list_instances(
         self, *, week: date | None = None, day: date | None = None, kid_id: int | None = None
     ) -> list[Instance]:
-        where, params = [], []
+        where: list[str] = []
+        params: list[Any] = []
         if week is not None:
             where.append("week = ?")
             params.append(week.isoformat())
@@ -645,7 +653,7 @@ def _id(cur: sqlite3.Cursor) -> int:
     return cur.lastrowid
 
 
-def _dump_values(values: dict[int, int] | Any) -> str:
+def _dump_values(values: Mapping[int, int]) -> str:
     return json.dumps({str(k): v for k, v in values.items()}, sort_keys=True)
 
 

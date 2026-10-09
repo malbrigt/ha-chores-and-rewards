@@ -84,7 +84,7 @@ def rollover(repo: Repo, today: date) -> int:
         kids = [k.id for k in repo.list_kids()]
         chores = repo.list_chores()
         for day in days:
-            repo.insert_instances(instances_for_day(chores, kids, day), week_start(day))
+            repo.insert_instances(instances_for_day(chores, kids, day))
             for inst in repo.list_instances(day=day):
                 done = finalize(inst)
                 if done.status is not inst.status:
@@ -100,7 +100,6 @@ def rollover(repo: Repo, today: date) -> int:
 
 def ensure_today(repo: Repo, today: date) -> None:
     """Create today's instances for current kids/chores (safe to call any time)."""
-    week = week_start(today)
-    repo.ensure_week(week)
+    repo.ensure_week(week_start(today))
     kids = [k.id for k in repo.list_kids()]
-    repo.insert_instances(instances_for_day(repo.list_chores(), kids, today), week)
+    repo.insert_instances(instances_for_day(repo.list_chores(), kids, today))

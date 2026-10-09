@@ -26,7 +26,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ChoresConfigEntry) -> bo
 
     @callback
     def _midnight(_now: datetime) -> None:
-        hass.async_create_task(store.async_rollover(), "chores_and_rewards rollover")
+        # Tracked by the entry: unload waits for a running rollover to finish.
+        entry.async_create_task(hass, store.async_rollover(), "rollover")
 
     # Fires at 00:00:00 in HA's local timezone.
     entry.async_on_unload(async_track_time_change(hass, _midnight, hour=0, minute=0, second=0))
