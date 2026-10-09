@@ -5,7 +5,7 @@ Each step records its status, what was built, how it was solved, any deviations,
 | Step | Title | Status |
 |---|---|---|
 | 1 | Scaffold and baseline | ✅ |
-| 2 | Domain logic (`logic.py`) | ⏳ |
+| 2 | Domain logic (`logic.py`) | ✅ |
 | 3 | Persistence (`db.py`) | ⏳ |
 | 4 | Store and scheduler | ⏳ |
 | 5 | WS contract, PIN, admin CRUD | ⏳ |
@@ -39,5 +39,31 @@ Each step records its status, what was built, how it was solved, any deviations,
 **Docker check:** `script/dev_onboard.py` onboards the Docker HA headlessly (user `dev`/`dev`) and adds the integration with PIN `1234`. Result: entry `loaded` in HA 2026.10.
 
 **CI:** pushed to the public GitHub repo. lint-test, hassfest and HACS all pass. HACS needed a repo description and topics, set with `gh repo edit`.
+
+**Commit:** (see git log)
+
+---
+
+## Step 2: Domain logic ✅
+**Built:** `logic.py` with:
+- Enums: ChoreType, Slot, Status, CapMode, Actor.
+- Frozen dataclasses: Currency, Chore, Instance, Balance.
+- `RuleError(code)`.
+- Week maths: `week_start`, `week_days`, `days_to_finalize`, `weeks_to_close`.
+- Scheduling: `is_scheduled`, `instances_for_day`, `snapshot`, `group_by_slot`.
+- Transitions: `finalize`, `transition`.
+- Balance: `week_pot`, `resolve_cap`, `compute_balance`.
+- Payout: `payout_warnings`, `is_payout_day`.
+
+**How:**
+- **Dates:** all date maths uses plain local `date` objects, so DST can't cause trouble.
+- **Catch-up:** returns the list of days still to process.
+- **Balance:** recomputed from instances every time. Order: cap earnings, subtract losses, add adjustments, clamp to `0..cap`.
+- **Pot cap:** snapshots for past days plus the current schedule for future days.
+- **Rule errors:** each refusal raises a stable error code. The API and UI will map these codes to translated text.
+
+**Decisions added:** D17–D20.
+
+**Tests:** 51 logic and PIN tests, 100% branch coverage on `logic.py`. Total 56.
 
 **Commit:** (see git log)

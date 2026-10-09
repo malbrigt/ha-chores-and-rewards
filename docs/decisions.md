@@ -20,3 +20,7 @@ These fill gaps in the spec. A ✔ means the owner confirmed it.
 | D14 | Permissions | The panel and all WS commands are `require_admin`. PIN actions also need a session token. |
 | D15 ✔ | Repo URL | `malbrigt/ha-chores-and-rewards`, as in the spec. |
 | D16 | Days | A day is a local date in HA's timezone. Catch-up processes each missed day in order. |
+| D17 | Weekdays | An empty weekday set means every day. |
+| D18 | Cap on total | The total is clamped to `0..cap` after adjustments, so screen time never exceeds its max. In pot mode the cap mostly sets the progress-bar scale. |
+| D19 | Parent transitions | A parent can set: done or excused from any state; rejected only from done; pending only today; missed only for past expected chores. No future days. |
+| D20 | Losses | Only expected chores cost; a rejected bonus earns 0 and loses 0. |
