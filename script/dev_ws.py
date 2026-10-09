@@ -1,6 +1,8 @@
 """Send WebSocket commands to the local Docker HA. Uses the token from dev_onboard.py.
 
-Usage: .venv/bin/python script/dev_ws.py '{"type": "chores_and_rewards/pin/unlock", "pin": "1234"}' ...
+Usage:
+  .venv/bin/python script/dev_ws.py \
+    '{"type": "chores_and_rewards/pin/unlock", "pin": "1234"}' ...
 Each argument is one message; "$token" in a later message is replaced by the last token seen.
 """
 
