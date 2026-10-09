@@ -171,4 +171,4 @@ Carry-forward for steps 5–7 (not bugs yet):
 
 **Tests:** 109 (19 new). sessions, store and websocket_api at 100% branch coverage.
 
-**Commit:** cec4f3b
+**Commit:** 4c947c5 (0795bdb was pushed by mistake without the new files; 4c947c5 completes it)
