@@ -79,6 +79,14 @@ class Actor(StrEnum):
 
 
 @dataclass(frozen=True)
+class Kid:
+    id: int
+    name: str
+    sort: int = 0
+    active: bool = True
+
+
+@dataclass(frozen=True)
 class Currency:
     id: int
     name: str
@@ -89,6 +97,7 @@ class Currency:
     default_max: int | None = None
     icon: str = ""
     active: bool = True
+    sort: int = 0
 
 
 @dataclass(frozen=True)
@@ -103,6 +112,7 @@ class Chore:
     icon: str = ""
     description: str = ""
     active: bool = True
+    sort: int = 0
 
 
 @dataclass(frozen=True)
@@ -118,6 +128,7 @@ class Instance:
     values: Mapping[int, int]
     status: Status = Status.PENDING
     icon: str = ""
+    id: int | None = None  # set once stored
 
 
 @dataclass(frozen=True)

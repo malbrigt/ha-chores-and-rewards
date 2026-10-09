@@ -24,3 +24,5 @@ These fill gaps in the spec. A ✔ means the owner confirmed it.
 | D18 | Cap on total | The total is clamped to `0..cap` after adjustments, so screen time never exceeds its max. In pot mode the cap mostly sets the progress-bar scale. |
 | D19 | Parent transitions | A parent can set: done or excused from any state; rejected only from done; pending only today; missed only for past expected chores. No future days. |
 | D20 | Losses | Only expected chores cost; a rejected bonus earns 0 and loses 0. |
+| D21 | Instance values | Stored as a JSON column on `instances`, not a separate `instance_values` table. Simpler, and it's always read as a whole. |
+| D22 | Seed data | Currencies are seeded with Norwegian names: Skjermtid (min, Friday, can be lost, fixed cap) and Ukepenger (kr, Saturday, can't be lost, pot cap). Screen time has no default max until a parent sets one. |

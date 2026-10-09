@@ -6,7 +6,7 @@ Each step records its status, what was built, how it was solved, any deviations,
 |---|---|---|
 | 1 | Scaffold and baseline | ✅ |
 | 2 | Domain logic (`logic.py`) | ✅ |
-| 3 | Persistence (`db.py`) | ⏳ |
+| 3 | Persistence (`db.py`) | ✅ |
 | 4 | Store and scheduler | ⏳ |
 | 5 | WS contract, PIN, admin CRUD | ⏳ |
 | 6 | Kid and read API | ⏳ |
@@ -65,5 +65,27 @@ Each step records its status, what was built, how it was solved, any deviations,
 **Decisions added:** D17–D20.
 
 **Tests:** 51 logic and PIN tests, 100% branch coverage on `logic.py`. Total 56.
+
+**Commit:** (see git log)
+
+---
+
+## Step 3: Persistence ✅
+**Built:**
+- `db.py`: schema v1 with 13 tables, CHECK and foreign-key constraints, and indexes.
+- The `Database` class: `migrate`, `run(fn)`, `transaction`, `backup`, `checkpoint`.
+- The `Repo` class: queries for meta, settings, kids, per-kid max, currencies, chores, weeks, instances, adjustments, payouts and audit.
+- `logic.py` gained `Kid`, `sort` fields and `Instance.id`.
+
+**How:**
+- **Connections:** short-lived, one per `run`, so it's thread-safe in HA's executor. WAL is on, with `busy_timeout`.
+- **Migrations:** each one is a SQL script wrapped in BEGIN/COMMIT, so a failure rolls back. The DB is copied to `*.bak-vN` via `sqlite3.backup()` before upgrading existing data.
+- **Instances:** inserted with `INSERT OR IGNORE` on UNIQUE(kid, chore, day), so catch-up is idempotent.
+- **Chore edits:** `resync_pending` and `delete_pending` touch only pending rows, so history keeps its snapshots.
+- **Deletes:** soft delete via `deleted_at`.
+
+**Decisions added:** D21 (JSON values column), D22 (seed data).
+
+**Tests:** 80 total (24 new for db). Run with `-W error::ResourceWarning` clean. db.py at 99% branch coverage.
 
 **Commit:** (see git log)
