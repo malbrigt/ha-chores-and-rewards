@@ -125,3 +125,35 @@ test("day navigation stays inside the current week (D37)", async () => {
   assert.ok(sameWeek("2026-10-09", "2026-10-11"));
   assert.ok(!sameWeek("2026-10-11", "2026-10-12"));
 });
+
+test("parentActions mirrors logic.transition (D19)", async () => {
+  const { parentActions } = await import("../../custom_components/chores_and_rewards/frontend/panel.js");
+  const today = "2026-10-09";
+  const inst = (over) => ({ id: 1, day: today, type: "expected", status: "pending", ...over });
+  assert.deepEqual(parentActions(inst(), today), ["done", "excused"]);
+  assert.deepEqual(parentActions(inst({ status: "done" }), today), ["excused", "rejected", "pending"]);
+  assert.deepEqual(parentActions(inst({ status: "missed", day: "2026-10-08" }), today), [
+    "done",
+    "excused",
+  ]);
+  assert.deepEqual(parentActions(inst({ status: "excused", day: "2026-10-08" }), today), [
+    "done",
+    "missed",
+  ]);
+  assert.deepEqual(parentActions(inst({ type: "bonus", day: "2026-10-08" }), today), ["done", "excused"]);
+  assert.deepEqual(parentActions(inst({ day: "2026-10-10" }), today), []); // future
+  assert.deepEqual(parentActions(inst({ id: null }), today), []); // preview
+});
+
+test("parseOptionalInt and weekdayName", async () => {
+  const { parseOptionalInt, weekdayName } = await import(
+    "../../custom_components/chores_and_rewards/frontend/panel.js"
+  );
+  assert.equal(parseOptionalInt(""), null);
+  assert.equal(parseOptionalInt(" 12 "), 12);
+  assert.equal(parseOptionalInt("-5"), -5);
+  assert.equal(parseOptionalInt("1.5"), null);
+  assert.equal(parseOptionalInt(undefined), null);
+  assert.equal(weekdayName(0, "nb"), "mandag");
+  assert.equal(weekdayName(6, "en"), "Sunday");
+});

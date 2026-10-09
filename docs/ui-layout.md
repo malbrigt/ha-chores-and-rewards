@@ -43,11 +43,15 @@ The screen is a landscape kitchen tablet. There are 3 kids, 2 of whom mainly use
 - Ticking from the week grid always asks for confirmation.
 
 ## Parent mode (step 9)
-- 🔒 opens a PIN pad. Once unlocked (🔓), the same screens gain extras:
-  - a ⋯ menu per chore: mark done, excused, reject, adjust balance;
-  - editable week cells;
-  - top tabs: I dag · Utbetaling (• when due today) · Administrer · Logg.
-- It auto-locks after 5 min.
+- 🔒 opens a PIN pad (also works with a keyboard). Once unlocked (🔓), the same screens gain extras:
+  - a ⋯ menu per chore with only the allowed actions (D19), plus "Juster saldo";
+  - a ± button per kid for adjustments;
+  - past cells in the week grid open the same ⋯ menu.
+- Tabs: I dag · Utbetaling (• when a payout is due today and unpaid) · Administrer · Logg.
+  - **Utbetaling:** week ‹ › (any past week), one card per currency with each kid's amount and "Merk utbetalt"/"Angre" (shows "+N etter utbetaling"), adjustments, and "Avslutt uka"/"Gjenåpne uka".
+  - **Administrer:** kids, currencies, settings | chores. Edit forms open as dialogs; delete asks to confirm. Chore save shows the payout-day warning (AC-5.5).
+  - **Logg:** latest 200 audit entries.
+- It auto-locks after `pin_timeout_seconds` of no parent actions. An expired session reopens the PIN pad.
 
 ## Idle
 - After `idle_seconds` (60) the screen returns to the overview.

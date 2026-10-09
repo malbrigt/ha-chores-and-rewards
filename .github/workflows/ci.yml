@@ -20,6 +20,12 @@ jobs:
       - run: mypy custom_components/chores_and_rewards
       - run: pytest -q --cov=custom_components.chores_and_rewards --cov-report=term-missing
       - run: if [ -d tests/js ]; then node --test "tests/js/*.test.mjs"; fi
+      - name: Panel render smoke test (happy-dom)
+        run: |
+          mkdir -p /tmp/s && cd /tmp/s
+          npm i --no-audit --no-fund happy-dom@20.14.4
+          cp -r "$GITHUB_WORKSPACE/custom_components" "$GITHUB_WORKSPACE/tests" /tmp/s/
+          timeout 120 node --test tests/js/panel.smoke.mjs
 
   hassfest:
     runs-on: ubuntu-latest

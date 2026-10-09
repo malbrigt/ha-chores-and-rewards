@@ -5,6 +5,7 @@ The source of truth is `chores-app-spec.md`. Gap decisions are in `docs/decision
 ## Commands
 - Setup: `script/setup` (Python 3.14 venv in `.venv`)
 - Test: `script/test` (pytest, then `node --test "tests/js/*.test.mjs"`; node runs via Docker if it isn't installed)
+- Smoke: `script/smoke` renders the real panel in happy-dom against a fake HA connection (Docker; nothing is installed on the host)
 - Lint: `script/lint` to fix, `script/lint --check` for CI
 - Real HA: `script/develop` starts HA 2026.10 in Docker at http://localhost:8123. Then `.venv/bin/python script/dev_onboard.py` onboards it (login dev/dev) and adds the integration (PIN 1234).
 

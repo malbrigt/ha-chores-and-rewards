@@ -215,8 +215,15 @@ def week_grid(repo: Repo, kid_id: int, week: date) -> list[dict]:
     for inst in sorted(repo.list_instances(week=week, kid_id=kid_id), key=_sort_key):
         row = rows.setdefault(
             inst.chore_id,
-            {"chore_id": inst.chore_id, "type": inst.type, "slot": inst.slot, "cells": {}},
+            {
+                "chore_id": inst.chore_id,
+                "type": inst.type,
+                "slot": inst.slot,
+                "cells": {},
+                "ids": {},
+            },
         )
         row["name"] = inst.name  # latest snapshot wins
         row["cells"][inst.day] = inst.status
+        row["ids"][inst.day] = inst.id
     return list(rows.values())

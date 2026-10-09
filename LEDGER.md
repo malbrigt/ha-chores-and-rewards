@@ -12,7 +12,7 @@ Each step records its status, what was built, how it was solved, any deviations,
 | 6 | Kid and read API | ✅ |
 | 7 | Parent actions | ✅ |
 | 8 | Panel part 1 | ✅ |
-| 9 | Panel part 2 | ⏳ |
+| 9 | Panel part 2 | ✅ |
 | 10 | Sensors and release | ⏳ |
 
 ---
@@ -285,3 +285,32 @@ Supporting changes:
 - **Decision:** D37.
 - **Tests:** 130 Python (+1) and 14 JS (+1).
 - **Commit:** 79ced0c
+
+---
+
+## Step 9: Panel part 2 (parent mode) ✅
+**Built** (in `panel.js`):
+- **PIN pad:** touch or keyboard. 🔒/🔓 in the header. Auto-lock after `pin_timeout_seconds`, and an expired session reopens the pad.
+- **⋯ menu per chore:** offers only the allowed actions (`parentActions`, which mirrors D19) plus "Juster saldo". There is also a ± per kid. In the week grid, past cells open the same menu.
+- **Tabs:**
+  - Utbetaling: navigate weeks, pay or undo, after-payout amount, adjustments, close or reopen the week. A • dot shows when a payout is due today.
+  - Administrer: kids, currencies, chores and settings forms, with delete confirmation and the payout warning.
+  - Logg: the audit list.
+- **Backend:** `get_week` rows now carry `ids` per day, so parents can edit past cells.
+
+**How:**
+- **Forms:** a generic dialog (text, number, bool, select and multi-chip fields). Inputs are uncontrolled: typed values are copied back before any re-render, and background reloads skip rendering while a form is open (D39).
+- **Parent calls:** go through `_pws`, which adds the token and handles `invalid_token`.
+
+**Verification:**
+- **New `script/smoke`:** a happy-dom render test (6 scenarios) that drives the real element against a fake HA connection. It covers the overview, tap and confirm, the week view, PIN wrong/right, the ⋯ menu payload, payouts, and the admin form (typed values survive a background reload; the save payload is correct). It's also in CI, with happy-dom pinned to 20.14.4 and installed only in a temp dir.
+- **Bug found by the smoke test:** timers kept running after the panel was removed from the page. The toast and reload timers are now cleared in `disconnectedCallback`.
+- **Bug found in self-review:** the first version skipped all re-renders while a form was open, so closing a confirm dialog over a form, or an error toast, would not show. Fixed.
+
+**Decisions added:** D38 (smoke-test strategy), D39 (forms vs live updates).
+
+**Tests:** 130 Python, 16 JS unit and 6 JS smoke.
+
+**Not verified by me:** pixel look and touch feel on the tablet.
+
+**Commit:** (pending)

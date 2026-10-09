@@ -70,7 +70,7 @@ Settings keys:
 | Type | Request | Result |
 |---|---|---|
 | `get_state` | `day?` (default today) | `{today, day, week, week_status, is_preview, kids, currencies, settings, board: {kid_id: {chores: [instance], bonus: [instance], balances: {cid: balance}}}}`. `chores` holds expected chores ordered morning → afternoon → anytime. Also runs the catch-up rollover if the midnight job was missed. A future day returns an unsaved preview from the schedule (`is_preview`, instance `id` null). |
-| `get_week` | `kid_id`, `week?` (any date in that week) | `{week, week_status, days: [date], rows: [{chore_id, name, slot, type, cells: {date: status}}], balances}` |
+| `get_week` | `kid_id`, `week?` (any date in that week) | `{week, week_status, days: [date], rows: [{chore_id, name, slot, type, cells: {date: status}, ids: {date: instance_id}}], balances}` |
 | `set_done` | `instance_id`, `done: bool` | `{instance}`. Kid rules: today only, and the week must be open (AC-6.1, AC-6.2). |
 | `subscribe` | (nothing) | Pushes `{event: "updated"}` after any change; the panel then re-reads `get_state`. The event can arrive before the result of the command that caused it. |
 

@@ -292,6 +292,7 @@ async def ws_get_week(hass, connection, msg, store: ChoresStore) -> dict[str, An
                     "type": r["type"].value,
                     "slot": r["slot"].value,
                     "cells": {d.isoformat(): st.value for d, st in r["cells"].items()},
+                    "ids": {d.isoformat(): i for d, i in r["ids"].items()},
                 }
                 for r in rows
             ],

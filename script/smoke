@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Render smoke test for the panel in happy-dom (Node in Docker; nothing installed on the host).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+docker run --rm -v "$PWD":/w:ro node:22-alpine sh -c '
+  mkdir -p /tmp/s && cd /tmp/s && npm i --silent --no-audit --no-fund happy-dom@20.14.4 >/dev/null &&
+  cp -r /w/custom_components /w/tests /tmp/s/ &&
+  timeout 120 node --test tests/js/panel.smoke.mjs'

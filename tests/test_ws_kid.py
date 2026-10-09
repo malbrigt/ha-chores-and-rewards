@@ -146,6 +146,7 @@ async def test_get_week_grid(hass, ws, freezer):
     rows = {r["name"]: r for r in week["rows"]}
     assert list(rows) == ["Re opp sengen", "Oppvask", "Vaske vinduer"]
     assert rows["Oppvask"]["cells"] == {"2026-10-12": "done", "2026-10-13": "pending"}
+    assert rows["Oppvask"]["ids"]["2026-10-12"] == dishes["id"]
     assert rows["Re opp sengen"]["cells"]["2026-10-12"] == "missed"
     assert rows["Vaske vinduer"]["cells"]["2026-10-12"] == "pending"  # never missed
     assert week["balances"][SCREEN]["total"] == 20
