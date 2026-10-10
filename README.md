@@ -23,7 +23,7 @@ See [`chores-app-spec.md`](chores-app-spec.md) for the why.
 
   The PIN locks after 5 minutes, and repeated wrong PINs lock it out for longer each time.
 - **"Clean hands?" reminder** when the screen wakes from idle.
-- **Balance sensors** (`sensor.<kid>_<currency>`) for automations and dashboards.
+- **Balance sensors** (`sensor.<kid>_<currency>`, one device per kid) for automations and dashboards.
 - Norwegian (default) and English. Uses your HA theme.
 
 ## Install
@@ -46,7 +46,7 @@ Then go to **Settings → Devices & services → Add integration → Chores and 
 The tablet can run as any Home Assistant user. Running it as an **admin** lets anyone reach HA's settings from the sidebar. If you don't want that, use a normal user (parent actions are protected by the PIN either way). Kiosk or fullscreen browser mode works well.
 
 ### Resetting the PIN
-**Settings → Devices & services → Chores and Rewards → Configure** (HA admin only). This also logs out any open parent sessions and clears lockouts.
+**Settings → Devices & services → Chores and Rewards → ⋮ → Reconfigure** (HA admin only). This reloads the integration, logs out any open parent sessions and clears lockouts.
 
 ### Data
 Everything is stored in `/config/chores_and_rewards.db` (SQLite) and included in HA backups. Removing the integration keeps the file.

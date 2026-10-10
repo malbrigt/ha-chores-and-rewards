@@ -13,11 +13,13 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.util import dt as dt_util
 
-from .const import EVENT_UPDATED, SIGNAL_UPDATED, SYSTEM_USER
+from .audit import AuditAction
+from .const import CONF_PIN_HASH, SIGNAL_UPDATED, SYSTEM_USER
 from .db import Database, Repo
 from .logic import (
     SLOT_ORDER,
@@ -42,11 +44,21 @@ _LOGGER = logging.getLogger(__name__)
 class ChoresStore:
     """Owns the database and the daily rollover."""
 
-    def __init__(self, hass: HomeAssistant, db: Database) -> None:
+    def __init__(self, hass: HomeAssistant, db: Database, entry: ConfigEntry) -> None:
         self.hass = hass
         self.db = db
+        self.entry = entry
         self.lock = asyncio.Lock()
+        self.backup_in_progress = False  # set by backup.py while it holds the lock
         self.sessions = PinSessions()
+
+    @property
+    def pin_hash(self) -> str:
+        return str(self.entry.data[CONF_PIN_HASH])
+
+    def apply_settings(self, settings: dict[str, Any]) -> None:
+        """Settings that live in memory (the PIN session timeout)."""
+        self.sessions.timeout = settings["pin_timeout_seconds"]
 
     @staticmethod
     def today() -> date:
@@ -57,8 +69,7 @@ class ChoresStore:
         """Migrate the schema, then catch up on any days missed while HA was off."""
         version = await self.hass.async_add_executor_job(self.db.migrate)
         _LOGGER.debug("Database at schema v%s: %s", version, self.db.path)
-        settings = await self.async_read(lambda repo: repo.get_settings())
-        self.sessions.timeout = settings["pin_timeout_seconds"]
+        self.apply_settings(await self.async_read(lambda repo: repo.get_settings()))
         await self.async_rollover()
 
     async def async_read[T](self, fn: Callable[[Repo], T]) -> T:
@@ -73,7 +84,7 @@ class ChoresStore:
             self.async_notify()
         return result
 
-    async def async_audit(self, action: str, user_id: str | None, **kwargs: Any) -> None:
+    async def async_audit(self, action: AuditAction, user_id: str | None, **kwargs: Any) -> None:
         """Audit an event that changes no stored state (e.g. PIN usage). No update event."""
         await self.async_write(
             lambda repo: repo.audit(action, user_id=user_id, **kwargs), notify=False
@@ -81,7 +92,7 @@ class ChoresStore:
 
     @callback
     def async_notify(self) -> None:
-        self.hass.bus.async_fire(EVENT_UPDATED)
+        """Tell the panel and sensors that data changed (internal signal only, D47)."""
         async_dispatcher_send(self.hass, SIGNAL_UPDATED)
 
     async def async_ensure_current(self) -> None:
@@ -196,18 +207,33 @@ def _sort_key(inst: Instance) -> tuple[int, int, int]:
     return (bonus, SLOT_ORDER.index(inst.slot), inst.id or 0)
 
 
-def kid_balances(repo: Repo, kid_id: int, week: date, today: date) -> dict[int, Balance]:
-    """Balance per active currency for one kid and week (D4, D5)."""
-    instances = repo.list_instances(week=week, kid_id=kid_id)
+def week_balances(repo: Repo, week: date, today: date) -> dict[int, dict[int, Balance]]:
+    """Balance per active kid and currency for one week (D4, D5).
+
+    Loads everything once (instances, chores, currencies, maxes, adjustments) and then
+    uses the pure rules in logic.py, so the cost doesn't grow with kids × currencies.
+    """
+    currencies = repo.list_currencies()
     chores = repo.list_chores()
-    maxes = repo.kid_max(kid_id)
-    out = {}
-    for currency in repo.list_currencies():
-        pot = week_pot(instances, chores, kid_id, week, today, currency.id)
-        cap = resolve_cap(currency, maxes.get(currency.id), pot)
-        adjustments = repo.adjustment_total(week, kid_id, currency.id)
-        out[currency.id] = compute_balance(currency, instances, adjustments, cap)
+    maxes = repo.all_kid_max()
+    adjustments = repo.adjustment_totals(week)
+    by_kid: dict[int, list[Instance]] = {}
+    for inst in repo.list_instances(week=week):
+        by_kid.setdefault(inst.kid_id, []).append(inst)
+    out: dict[int, dict[int, Balance]] = {}
+    for kid in repo.list_kids():
+        mine = by_kid.get(kid.id, [])
+        out[kid.id] = {}
+        for c in currencies:
+            pot = week_pot(mine, chores, kid.id, week, today, c.id)
+            cap = resolve_cap(c, maxes.get((kid.id, c.id)), pot)
+            out[kid.id][c.id] = compute_balance(c, mine, adjustments.get((kid.id, c.id), 0), cap)
     return out
+
+
+def kid_balances(repo: Repo, kid_id: int, week: date, today: date) -> dict[int, Balance]:
+    """Balances for one kid (empty if the kid is inactive or deleted)."""
+    return week_balances(repo, week, today).get(kid_id, {})
 
 
 @dataclass(frozen=True)
@@ -228,13 +254,14 @@ def board(repo: Repo, day: date, today: date) -> dict[int, KidBoard]:
     if day > today and not found:
         found = instances_for_day(repo.list_chores(), [k.id for k in kids], day)
     rows = sorted(found, key=_sort_key)
+    balances = week_balances(repo, week, today)
     out = {}
     for kid in kids:
         mine = [i for i in rows if i.kid_id == kid.id]
         out[kid.id] = KidBoard(
             chores=[i for i in mine if i.type is ChoreType.EXPECTED],
             bonus=[i for i in mine if i.type is ChoreType.BONUS],
-            balances=kid_balances(repo, kid.id, week, today),
+            balances=balances.get(kid.id, {}),
         )
     return out
 

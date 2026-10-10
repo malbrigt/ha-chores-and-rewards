@@ -52,13 +52,13 @@ async def test_non_admin_user_works_with_pin(
 
 
 async def test_pin_change_ends_sessions_and_lockout(hass, ws):
-    """D40: changing the PIN in the options flow resets sessions and escalation."""
+    """D40: changing the PIN (reconfigure → reload) resets sessions and escalation."""
     token = await unlock(ws)
     for _ in range(5):
         await err(ws, "pin/unlock", pin="0000")
     assert await err(ws, "pin/unlock", pin=TEST_PIN) == "locked_out"
-    result = await hass.config_entries.options.async_init(ws.entry.entry_id)
-    await hass.config_entries.options.async_configure(
+    result = await ws.entry.start_reconfigure_flow(hass)
+    await hass.config_entries.flow.async_configure(
         result["flow_id"], {"pin": "5678", "pin_confirm": "5678"}
     )
     await hass.async_block_till_done()

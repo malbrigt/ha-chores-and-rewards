@@ -249,6 +249,10 @@ def mask_to_weekdays(mask: int) -> frozenset[int]:
 # --- Database -----------------------------------------------------------------
 
 
+class SchemaTooNewError(RuntimeError):
+    """The file was written by a newer version of this integration."""
+
+
 class Database:
     """Owns the SQLite file. Thread-safe by using one connection per call."""
 
@@ -285,7 +289,7 @@ class Database:
             conn.execute("PRAGMA journal_mode = WAL")  # persistent once set
             current = _read_version(conn)
             if current > SCHEMA_VERSION:
-                raise RuntimeError(f"Database schema v{current} is newer than this code")
+                raise SchemaTooNewError(f"Database schema v{current} is newer than this code")
             if 0 < current < SCHEMA_VERSION:
                 self.backup(self.path.with_name(f"{self.path.name}.bak-v{current}"))
             for version in range(current, SCHEMA_VERSION):
@@ -407,6 +411,11 @@ class Repo:
             "SELECT currency_id, weekly_max FROM kid_currency_max WHERE kid_id = ?", [kid_id]
         )
         return {r[0]: r[1] for r in rows}
+
+    def all_kid_max(self) -> dict[tuple[int, int], int]:
+        """{(kid_id, currency_id): weekly_max} for every kid."""
+        rows = self._x("SELECT kid_id, currency_id, weekly_max FROM kid_currency_max")
+        return {(r[0], r[1]): r[2] for r in rows}
 
     def set_kid_max(self, kid_id: int, currency_id: int, weekly_max: int | None) -> None:
         if weekly_max is None:
@@ -720,6 +729,15 @@ class Repo:
             [week.isoformat(), kid_id, currency_id, amount, note, at or now_iso(), by],
         )
         return _id(cur)
+
+    def adjustment_totals(self, week: date) -> dict[tuple[int, int], int]:
+        """{(kid_id, currency_id): sum of adjustments} for one week."""
+        rows = self._x(
+            "SELECT kid_id, currency_id, SUM(amount) FROM adjustments WHERE week = ?"
+            " GROUP BY kid_id, currency_id",
+            [week.isoformat()],
+        )
+        return {(r[0], r[1]): r[2] for r in rows}
 
     def adjustment_total(self, week: date, kid_id: int, currency_id: int) -> int:
         row = self._x(

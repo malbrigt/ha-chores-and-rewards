@@ -4,7 +4,26 @@
       "user": {
         "title": "Chores and Rewards",
         "description": "Choose a parent PIN (4–8 digits). It unlocks parent actions on the chores screen.",
-        "data": { "pin": "Parent PIN", "pin_confirm": "Repeat PIN" }
+        "data": {
+          "pin": "Parent PIN",
+          "pin_confirm": "Repeat PIN"
+        },
+        "data_description": {
+          "pin": "Digits only. Parents enter it on the chores screen to unlock parent actions.",
+          "pin_confirm": "Type the same PIN again."
+        }
+      },
+      "reconfigure": {
+        "title": "Reset parent PIN",
+        "description": "Set a new parent PIN (4–8 digits).",
+        "data": {
+          "pin": "New PIN",
+          "pin_confirm": "Repeat new PIN"
+        },
+        "data_description": {
+          "pin": "Digits only. Parents enter it on the chores screen to unlock parent actions.",
+          "pin_confirm": "Type the same PIN again."
+        }
       }
     },
     "error": {
@@ -12,20 +31,16 @@
       "pin_mismatch": "The PINs do not match."
     },
     "abort": {
-      "single_instance_allowed": "Chores and Rewards is already set up."
+      "single_instance_allowed": "Chores and Rewards is already set up.",
+      "reconfigure_successful": "The parent PIN was changed. Parents are logged out on the chores screen."
     }
   },
-  "options": {
-    "step": {
-      "init": {
-        "title": "Reset parent PIN",
-        "description": "Set a new parent PIN (4–8 digits).",
-        "data": { "pin": "New PIN", "pin_confirm": "Repeat new PIN" }
-      }
+  "exceptions": {
+    "database_newer": {
+      "message": "The database was created by a newer version of Chores and Rewards. Update the integration."
     },
-    "error": {
-      "invalid_pin": "The PIN must be 4–8 digits.",
-      "pin_mismatch": "The PINs do not match."
+    "database_unavailable": {
+      "message": "Could not open the Chores and Rewards database: {error}"
     }
   }
 }

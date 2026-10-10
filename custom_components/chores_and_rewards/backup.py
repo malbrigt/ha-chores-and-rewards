@@ -1,7 +1,7 @@
-"""Backup platform: flush SQLite's write-ahead log before HA takes a backup.
+"""Backup platform: keep the SQLite file consistent while HA copies /config.
 
-After a checkpoint the main .db file holds all committed data, so the copy in the
-backup is consistent. Writes are not blocked during the backup (kids can still tap).
+Like the recorder: block writes and flush the write-ahead log before the backup, and
+allow writes again afterwards. A kid's tap during a backup simply waits (D23).
 """
 
 from __future__ import annotations
@@ -14,9 +14,19 @@ from .const import DOMAIN
 async def async_pre_backup(hass: HomeAssistant) -> None:
     for entry in hass.config_entries.async_loaded_entries(DOMAIN):
         store = entry.runtime_data
-        async with store.lock:
+        await store.lock.acquire()
+        store.backup_in_progress = True
+        try:
             await hass.async_add_executor_job(store.db.checkpoint)
+        except Exception:
+            store.backup_in_progress = False
+            store.lock.release()
+            raise
 
 
 async def async_post_backup(hass: HomeAssistant) -> None:
-    """Nothing to undo."""
+    for entry in hass.config_entries.async_loaded_entries(DOMAIN):
+        store = entry.runtime_data
+        if store.backup_in_progress:
+            store.backup_in_progress = False
+            store.lock.release()

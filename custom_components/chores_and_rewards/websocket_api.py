@@ -14,11 +14,13 @@ from typing import Any
 
 import probatio as vol
 from homeassistant.components import websocket_api
-from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_PIN_HASH, DOMAIN, EVENT_UPDATED
+from .audit import AuditAction
+from .const import DOMAIN, SIGNAL_UPDATED
 from .db import Repo
 from .logic import (
     Actor,
@@ -125,7 +127,8 @@ def handler(*, parent: bool) -> Callable[[Handler], Any]:
             except sqlite3.IntegrityError as err:
                 # UNIQUE: an active kid/chore/currency already has that name.
                 # Anything else (FOREIGN KEY): a reference to a missing kid/currency/chore.
-                code = "duplicate_name" if "UNIQUE" in str(err) else "not_found"
+                unique = err.sqlite_errorname == "SQLITE_CONSTRAINT_UNIQUE"
+                code = "duplicate_name" if unique else "not_found"
                 connection.send_error(msg["id"], code, code)
             else:
                 connection.send_result(msg["id"], result)
@@ -245,13 +248,16 @@ def ws_subscribe(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
     """Push {event: "updated"} after any change; the panel then re-reads (AC-6.1)."""
+    if _store(hass) is None:
+        connection.send_error(msg["id"], "not_loaded", "Integration not loaded")
+        return
 
     @callback
-    def forward(_event: Event) -> None:
+    def forward() -> None:
         connection.send_message(websocket_api.event_message(msg["id"], {"event": "updated"}))
 
     # Stored subscriptions are removed by HA on unsubscribe or disconnect.
-    connection.subscriptions[msg["id"]] = hass.bus.async_listen(EVENT_UPDATED, forward)
+    connection.subscriptions[msg["id"]] = async_dispatcher_connect(hass, SIGNAL_UPDATED, forward)
     connection.send_result(msg["id"])
 
 
@@ -375,13 +381,15 @@ async def ws_pin_unlock(hass, connection, msg, store: ChoresStore) -> dict[str, 
     user = _user(connection)
     try:
         store.sessions.check_allowed()
-        entry = hass.config_entries.async_loaded_entries(DOMAIN)[0]
-        ok = await hass.async_add_executor_job(verify_pin, msg["pin"], entry.data[CONF_PIN_HASH])
+        ok = await hass.async_add_executor_job(verify_pin, msg["pin"], store.pin_hash)
         token = store.sessions.unlock(ok)  # raises wrong_pin / locked_out
     except RuleError as err:
-        await store.async_audit(f"pin_{err.code}", user)  # pin_wrong_pin / pin_locked_out
+        locked = err.code == "locked_out"
+        await store.async_audit(
+            AuditAction.PIN_LOCKED_OUT if locked else AuditAction.PIN_WRONG, user
+        )
         raise
-    await store.async_audit("pin_unlock", user)
+    await store.async_audit(AuditAction.PIN_UNLOCK, user)
     return {"token": token, "expires_in": store.sessions.expires_in(token)}
 
 
@@ -394,7 +402,7 @@ async def ws_pin_status(hass, connection, msg, store: ChoresStore) -> dict[str, 
 @command({vol.Required("type"): P + "pin/lock", vol.Required("token"): str}, parent=False)
 async def ws_pin_lock(hass, connection, msg, store: ChoresStore) -> dict[str, Any]:
     store.sessions.lock(msg["token"])
-    await store.async_audit("pin_lock", _user(connection))
+    await store.async_audit(AuditAction.PIN_LOCK, _user(connection))
     return {}
 
 
@@ -662,7 +670,7 @@ async def ws_settings_save(hass, connection, msg, store: ChoresStore) -> dict[st
         return after
 
     settings = await store.async_write(write)
-    store.sessions.timeout = settings["pin_timeout_seconds"]
+    store.apply_settings(settings)
     return {"settings": settings}
 
 

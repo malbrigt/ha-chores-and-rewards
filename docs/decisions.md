@@ -6,7 +6,7 @@ These fill gaps in the spec. A ✔ means the owner confirmed it.
 |---|---|---|
 | D1 ✔ | Week close | Auto-close at Monday 00:00. The parent can also close early. Unpaid payouts are flagged in history; nothing carries over. |
 | D2 ✔ | Balance sensors | Yes: one sensor per kid × currency. |
-| D3 ✔ | PIN setup | Set in the config flow and reset in the options flow (HA admin). Stored as a salted scrypt hash; 4–8 digits. |
+| D3 ✔ | PIN setup | Set in the config flow. An HA admin changes it via **Reconfigure** (step 14; the options flow was the wrong HA place for entry data). Stored as a salted scrypt hash; 4–8 digits. |
 | D4 ✔ | Weekly cap | Set per currency via `cap_mode`. `fixed` is a hard max (e.g. screen time), with an optional per-kid override of the currency default. `pot` means the max is the sum of all chore values scheduled for that kid this week (e.g. allowance). |
 | D5 | Balance | `min(earned, cap) − lost (only if the currency can be lost) + adjustments`, clamped at ≥0 once on the total. Recomputed from rows, never stored. |
 | D6 | Instances | One row per kid × chore × day, created eagerly at rollover, startup and catch-up. Idempotent through UNIQUE. Name and values are snapshotted onto the row. |
@@ -26,7 +26,7 @@ These fill gaps in the spec. A ✔ means the owner confirmed it.
 | D20 | Losses | Only expected chores cost; a rejected bonus earns 0 and loses 0. |
 | D21 ✔ | Instance values | Revised in step 12. Stored in `instance_values(instance_id, currency_id, value)` with FKs and cascade delete. The JSON column broke 1NF and had no FK. |
 | D22 | Seed data | Currencies are seeded with Norwegian names: Skjermtid (min, Friday, can be lost, fixed cap) and Ukepenger (kr, Saturday, can't be lost, pot cap). Screen time has no default max until a parent sets one. |
-| D23 | Backup | The pre-backup hook only checkpoints the WAL under the lock. Writes aren't blocked during a backup, so kids can still tap. |
+| D23 ✔ | Backup | Revised in step 14, following the recorder pattern: `async_pre_backup` takes the write lock and checkpoints the WAL, and `async_post_backup` releases the lock. A tap during a backup waits. That's a deliberate trade for a consistent backup file. |
 | D24 | Removal | Removing the integration keeps `chores_and_rewards.db`, so no data is lost by accident. |
 | D25 | Store module | `store.py` was added (not in the spec layout). It holds the HA ↔ db/logic glue and the rollover. |
 | D26 | PIN sessions | Live in `sessions.py`, a pure class with an injectable clock. Tokens are in memory only, so an HA restart locks the panel. Failures are counted globally (one shared PIN, one screen). |

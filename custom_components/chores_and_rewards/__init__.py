@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.typing import ConfigType
@@ -26,7 +28,7 @@ from .const import (
     PANEL_URL,
     STATIC_URL,
 )
-from .db import Database
+from .db import Database, SchemaTooNewError
 from .store import ChoresStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -52,8 +54,17 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ChoresConfigEntry) -> bool:
     """Open the database, catch up, and schedule the midnight rollover."""
-    store = ChoresStore(hass, Database(hass.config.path(DB_FILENAME)))
-    await store.async_start()
+    store = ChoresStore(hass, Database(hass.config.path(DB_FILENAME)), entry)
+    try:
+        await store.async_start()
+    except SchemaTooNewError as err:
+        raise ConfigEntryError(translation_domain=DOMAIN, translation_key="database_newer") from err
+    except sqlite3.Error as err:
+        raise ConfigEntryNotReady(
+            translation_domain=DOMAIN,
+            translation_key="database_unavailable",
+            translation_placeholders={"error": str(err)},
+        ) from err
     entry.runtime_data = store
 
     @callback
@@ -64,15 +75,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ChoresConfigEntry) -> bo
     # Fires at 00:00:00 in HA's local timezone.
     entry.async_on_unload(async_track_time_change(hass, _midnight, hour=0, minute=0, second=0))
     await _async_register_panel(hass, entry)
-    entry.async_on_unload(entry.add_update_listener(_async_entry_updated))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
-
-
-async def _async_entry_updated(hass: HomeAssistant, entry: ChoresConfigEntry) -> None:
-    """The options flow changed the PIN: log out parents and clear any lockout."""
-    entry.runtime_data.sessions.reset()
-    await entry.runtime_data.async_audit("pin_reset", None, note="options flow")
 
 
 async def _async_register_panel(hass: HomeAssistant, entry: ChoresConfigEntry) -> None:

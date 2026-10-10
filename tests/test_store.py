@@ -1,14 +1,17 @@
 """Store, midnight rollover, catch-up, auto week close, backup and diagnostics."""
 
+import asyncio
 from datetime import date, datetime
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
+import pytest
 from homeassistant.config_entries import ConfigEntryState
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.chores_and_rewards import backup, diagnostics
-from custom_components.chores_and_rewards.const import EVENT_UPDATED
+from custom_components.chores_and_rewards.const import SIGNAL_UPDATED
 from custom_components.chores_and_rewards.logic import Chore, ChoreType, Slot, Status
 
 OSLO = ZoneInfo("Europe/Oslo")
@@ -77,7 +80,7 @@ async def test_midnight_marks_missed_and_creates_next_day(hass, setup_entry, fre
     store = entry.runtime_data
     await _seed(store)
     events = []
-    hass.bus.async_listen(EVENT_UPDATED, events.append)
+    async_dispatcher_connect(hass, SIGNAL_UPDATED, lambda: events.append(1))
 
     freezer.move_to(at(TUE, 0, 0, 0))
     async_fire_time_changed(hass)
@@ -182,13 +185,33 @@ async def test_dst_change_night(hass, setup_entry, freezer):
     assert await store.async_read(lambda r: r.last_finalized()) == sat
 
 
-async def test_backup_checkpoints(hass, setup_entry, freezer):
+async def test_backup_blocks_writes_until_done(hass, setup_entry, freezer):
+    """Like the recorder: writes wait while HA copies the DB file (D23)."""
     freezer.move_to(at(MON))
     entry = await setup_entry()
-    with patch.object(entry.runtime_data.db, "checkpoint") as checkpoint:
+    store = entry.runtime_data
+    with patch.object(store.db, "checkpoint") as checkpoint:
         await backup.async_pre_backup(hass)
-        await backup.async_post_backup(hass)
     checkpoint.assert_called_once()
+    assert store.lock.locked()
+    write = hass.async_create_task(store.async_write(lambda r: r.add_kid("Ada")))
+    await asyncio.sleep(0)
+    assert not write.done()
+    await backup.async_post_backup(hass)
+    await write
+    assert not store.lock.locked()
+    await backup.async_post_backup(hass)  # a stray post_backup must not release anything
+
+
+async def test_backup_failed_checkpoint_releases_lock(hass, setup_entry, freezer):
+    freezer.move_to(at(MON))
+    entry = await setup_entry()
+    with (
+        patch.object(entry.runtime_data.db, "checkpoint", side_effect=OSError),
+        pytest.raises(OSError),
+    ):
+        await backup.async_pre_backup(hass)
+    assert not entry.runtime_data.lock.locked()
 
 
 async def test_diagnostics_redacts_pin(hass, setup_entry, freezer):

@@ -1,7 +1,8 @@
-"""Balance sensors: one per kid × active currency, e.g. sensor.ada_skjermtid (spec §12).
+"""Balance sensors: one HA device per kid, one sensor per active currency (spec §12).
 
-Push-updated: a coordinator without polling refreshes on every data change, adds sensors
-for new kids/currencies and removes sensors whose kid or currency is gone.
+e.g. device "Ada" with sensor "Skjermtid" → sensor.ada_skjermtid. Push-updated: a
+coordinator without polling refreshes (debounced) on every data change. Devices and
+sensors follow kids and currencies being added, renamed, deactivated or deleted.
 """
 
 from __future__ import annotations
@@ -13,18 +14,24 @@ from typing import Any
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.debounce import Debouncer
+from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpdateCoordinator
 
 from . import ChoresConfigEntry
-from .const import DOMAIN, SIGNAL_UPDATED
+from .const import DOMAIN, NAME, SIGNAL_UPDATED
 from .db import Repo
 from .logic import Balance, Currency, Kid, week_start
-from .store import ChoresStore, kid_balances
+from .store import ChoresStore, week_balances
 
 _LOGGER = logging.getLogger(__name__)
+
+# Coordinator-based, no polling: entity updates don't need to be limited.
+PARALLEL_UPDATES = 0
 
 type Key = tuple[int, int]  # (kid_id, currency_id)
 
@@ -39,15 +46,14 @@ class BalanceRow:
 
 def _read(repo: Repo, today: date) -> dict[Key, BalanceRow]:
     week = week_start(today)
-    currencies = repo.list_currencies()
-    out: dict[Key, BalanceRow] = {}
-    for kid in repo.list_kids():
-        balances = kid_balances(repo, kid.id, week, today)
-        for currency in currencies:
-            out[(kid.id, currency.id)] = BalanceRow(
-                kid, currency, balances[currency.id], week.isoformat()
-            )
-    return out
+    kids = {k.id: k for k in repo.list_kids()}
+    currencies = {c.id: c for c in repo.list_currencies()}
+    balances = week_balances(repo, week, today)
+    return {
+        (kid_id, cur_id): BalanceRow(kids[kid_id], currencies[cur_id], balance, week.isoformat())
+        for kid_id, per_currency in balances.items()
+        for cur_id, balance in per_currency.items()
+    }
 
 
 class BalanceCoordinator(DataUpdateCoordinator[dict[Key, BalanceRow]]):
@@ -55,13 +61,23 @@ class BalanceCoordinator(DataUpdateCoordinator[dict[Key, BalanceRow]]):
 
     def __init__(self, hass: HomeAssistant, entry: ChoresConfigEntry, store: ChoresStore) -> None:
         super().__init__(
-            hass, _LOGGER, config_entry=entry, name=f"{DOMAIN} balances", update_interval=None
+            hass,
+            _LOGGER,
+            config_entry=entry,
+            name=f"{DOMAIN} balances",
+            update_interval=None,
+            # Bursts (a rollover, a save that also refreshes today) become one DB read.
+            request_refresh_debouncer=Debouncer(hass, _LOGGER, cooldown=1.0, immediate=True),
         )
         self.store = store
 
     async def _async_update_data(self) -> dict[Key, BalanceRow]:
         today = self.store.today()
         return await self.store.async_read(lambda repo: _read(repo, today))
+
+
+def _device_identifier(entry: ChoresConfigEntry, kid_id: int) -> tuple[str, str]:
+    return (DOMAIN, f"{entry.entry_id}_kid_{kid_id}")
 
 
 async def async_setup_entry(
@@ -75,23 +91,37 @@ async def async_setup_entry(
 
     @callback
     def sync_entities() -> None:
-        """Add sensors for new kid × currency pairs, remove ones that disappeared."""
+        """Add sensors for new pairs; keep device names in sync; remove what disappeared."""
         current = set(coordinator.data)
         new = current - known
         if new:
             async_add_entities(BalanceSensor(coordinator, entry, key) for key in sorted(new))
-        registry = er.async_get(hass)
-        for key in known - current:
-            entity_id = registry.async_get_entity_id("sensor", DOMAIN, _unique_id(entry, key))
+        devices = dr.async_get(hass)
+        kids = {key[0]: row.kid for key, row in coordinator.data.items()}
+        for kid_id, kid in kids.items():
+            device = devices.async_get_device(identifiers={_device_identifier(entry, kid_id)})
+            if device is not None and device.name != kid.name:
+                devices.async_update_device(device.id, name=kid.name)
+        gone_kids = {key[0] for key in known} - set(kids)
+        for kid_id in gone_kids:  # removes the kid's device and its entities (stale devices)
+            device = devices.async_get_device(identifiers={_device_identifier(entry, kid_id)})
+            if device is not None:
+                devices.async_update_device(device.id, remove_config_entry_id=entry.entry_id)
+        entities = er.async_get(hass)
+        for key in known - current:  # e.g. a currency was deactivated
+            if key[0] in gone_kids:
+                continue
+            entity_id = entities.async_get_entity_id("sensor", DOMAIN, _unique_id(entry, key))
             if entity_id:
-                registry.async_remove(entity_id)
+                entities.async_remove(entity_id)
         known.clear()
         known.update(current)
 
     sync_entities()
     entry.async_on_unload(coordinator.async_add_listener(sync_entities))
-
-    entry.async_on_unload(async_dispatcher_connect(hass, SIGNAL_UPDATED, coordinator.async_refresh))
+    entry.async_on_unload(
+        async_dispatcher_connect(hass, SIGNAL_UPDATED, coordinator.async_request_refresh)
+    )
 
 
 def _unique_id(entry: ChoresConfigEntry, key: Key) -> str:
@@ -101,16 +131,20 @@ def _unique_id(entry: ChoresConfigEntry, key: Key) -> str:
 class BalanceSensor(CoordinatorEntity[BalanceCoordinator], SensorEntity):
     """This week's balance for one kid in one currency."""
 
+    _attr_has_entity_name = True
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_has_entity_name = False
 
     def __init__(self, coordinator: BalanceCoordinator, entry: ChoresConfigEntry, key: Key) -> None:
         super().__init__(coordinator)
         self._key = key
         self._attr_unique_id = _unique_id(entry, key)
-        row = coordinator.data[key]
-        # Fixed at creation so the entity_id is e.g. sensor.ada_skjermtid.
-        self._attr_name = f"{row.kid.name} {row.currency.name}"
+        kid = coordinator.data[key].kid
+        self._attr_device_info = DeviceInfo(
+            identifiers={_device_identifier(entry, kid.id)},
+            name=kid.name,
+            manufacturer=NAME,
+            entry_type=DeviceEntryType.SERVICE,
+        )
 
     @property
     def _row(self) -> BalanceRow | None:
@@ -119,6 +153,11 @@ class BalanceSensor(CoordinatorEntity[BalanceCoordinator], SensorEntity):
     @property
     def available(self) -> bool:
         return super().available and self._row is not None
+
+    @property
+    def name(self) -> str | None:
+        row = self._row
+        return row.currency.name if row else None
 
     @property
     def native_value(self) -> int | None:
@@ -132,6 +171,7 @@ class BalanceSensor(CoordinatorEntity[BalanceCoordinator], SensorEntity):
 
     @property
     def icon(self) -> str | None:
+        # The icon is user data (set per currency), so it can't live in icons.json.
         row = self._row
         return (row.currency.icon or None) if row else None
 
@@ -143,7 +183,6 @@ class BalanceSensor(CoordinatorEntity[BalanceCoordinator], SensorEntity):
         b = row.balance
         return {
             "kid": row.kid.name,
-            "currency": row.currency.name,
             "earned": b.earned,
             "lost": b.lost,
             "adjustments": b.adjustments,

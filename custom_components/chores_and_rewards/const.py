@@ -12,8 +12,7 @@ PIN_MAX_LEN = 8
 
 DB_FILENAME = "chores_and_rewards.db"
 
-# Fired on the HA bus / dispatcher after any data change (panel + sensors listen).
-EVENT_UPDATED = f"{DOMAIN}_updated"
+# Dispatcher signal after any data change (panel subscriptions and sensors listen).
 SIGNAL_UPDATED = f"{DOMAIN}_updated"
 
 SYSTEM_USER = "system"

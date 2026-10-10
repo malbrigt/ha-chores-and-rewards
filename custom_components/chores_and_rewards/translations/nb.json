@@ -4,7 +4,26 @@
       "user": {
         "title": "Gjøremål og belønninger",
         "description": "Velg en foreldre-PIN (4–8 sifre). Den låser opp forelderhandlinger på gjøremålsskjermen.",
-        "data": { "pin": "Foreldre-PIN", "pin_confirm": "Gjenta PIN" }
+        "data": {
+          "pin": "Foreldre-PIN",
+          "pin_confirm": "Gjenta PIN"
+        },
+        "data_description": {
+          "pin": "Kun sifre. Foreldre skriver den inn på gjøremålsskjermen for å låse opp forelderhandlinger.",
+          "pin_confirm": "Skriv den samme PIN-koden igjen."
+        }
+      },
+      "reconfigure": {
+        "title": "Tilbakestill foreldre-PIN",
+        "description": "Velg en ny foreldre-PIN (4–8 sifre).",
+        "data": {
+          "pin": "Ny PIN",
+          "pin_confirm": "Gjenta ny PIN"
+        },
+        "data_description": {
+          "pin": "Kun sifre. Foreldre skriver den inn på gjøremålsskjermen for å låse opp forelderhandlinger.",
+          "pin_confirm": "Skriv den samme PIN-koden igjen."
+        }
       }
     },
     "error": {
@@ -12,20 +31,16 @@
       "pin_mismatch": "PIN-kodene er ikke like."
     },
     "abort": {
-      "single_instance_allowed": "Gjøremål og belønninger er allerede satt opp."
+      "single_instance_allowed": "Gjøremål og belønninger er allerede satt opp.",
+      "reconfigure_successful": "Foreldre-PIN er endret. Foreldre er logget ut på gjøremålsskjermen."
     }
   },
-  "options": {
-    "step": {
-      "init": {
-        "title": "Tilbakestill foreldre-PIN",
-        "description": "Velg en ny foreldre-PIN (4–8 sifre).",
-        "data": { "pin": "Ny PIN", "pin_confirm": "Gjenta ny PIN" }
-      }
+  "exceptions": {
+    "database_newer": {
+      "message": "Databasen ble laget av en nyere versjon av Gjøremål og belønninger. Oppdater integrasjonen."
     },
-    "error": {
-      "invalid_pin": "PIN må være 4–8 sifre.",
-      "pin_mismatch": "PIN-kodene er ikke like."
+    "database_unavailable": {
+      "message": "Klarte ikke å åpne databasen til Gjøremål og belønninger: {error}"
     }
   }
 }
