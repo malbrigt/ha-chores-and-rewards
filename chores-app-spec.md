@@ -1,6 +1,6 @@
 # Chores and Rewards for Home Assistant: Spec
 
-Draft 6, 9 Oct 2026. One open decision (section 12, balance sensors). What it does, not how. Custom build (TaskMate, ChoreOps reviewed; neither fits).
+Draft 7, 10 Oct 2026. No open decisions. What it does, not how. Custom build (TaskMate, ChoreOps reviewed; neither fits).
 
 ## 1. Principles
 
@@ -53,7 +53,7 @@ Fields: name, icon, description; type (expected/bonus); assigned kids; weekdays;
 ## 6. Daily flow
 
 1. Screen shows morning chores, then afternoon chores, per kid.
-2. Tap = done, counted immediately, no approval. Kid can undo same day.
+2. Tap = done, counted immediately, no approval. Kids can tick or untick any day of the open week (forgotten ticks happen); late ticks are flagged for the parent.
 3. Midnight: undone expected chores become missed.
 
 ## 7. Parent PIN
@@ -75,7 +75,7 @@ Unlocks, with every action logged:
 
 **Weekly view (switchable)**
 - Calendar-style: Monday to Sunday as columns, each chore marked done or missed per day.
-- Read-only history. Returns to the daily view after idle.
+- Today and earlier days of the open week can be ticked (with a confirmation). Returns to the daily view after idle.
 
 **Clean-hands reminder**
 - When the screen wakes from idle, it shows "Clean hands?" first; one tap continues.
@@ -106,8 +106,8 @@ Never: gamification.
 | UI | Sidebar panel (like Calendar), HA theme colours, live updates over HA's WebSocket API |
 | Frontend | One plain JavaScript file, no framework, no build step |
 | Languages | Norwegian (default) and English |
-| Kitchen screen | Runs as an HA admin user |
-| PIN | One shared parent PIN, separate from HA login, checked on the server, auto-locks after 5 minutes, reset by an HA admin |
+| Kitchen screen | Any HA user. An admin user can reach HA settings from the sidebar; use a normal user to prevent that. Parent actions always need the PIN |
+| PIN | One shared parent PIN, separate from HA login, checked on the server, auto-locks after 5 minutes, longer lockouts after repeated wrong PINs, reset by an HA admin (Reconfigure) |
 | Time | HA's timezone; midnight rollover with catch-up if HA was off |
 | HA versions | Current releases only |
 | Update policy | Feature-conservative: stable public HA APIs only |
@@ -132,9 +132,9 @@ tests/
 
 Baselines: jpawlowski/hacs.integration_blueprint (scaffold), HA forum sidebar-panel guide (Jan 2026), fireriver84/home-chores (PIN sessions, versioned frontend assets), HACS integration requirements.
 
-## 12. Open decision
+## 12. Decided
 
-Balance sensors: expose each kid's balance per currency as an HA entity (e.g. `sensor.<kid>_screen_time`), usable in automations and other dashboards. Proposal: yes.
+Balance sensors: yes. One HA device per kid, one sensor per currency (e.g. `sensor.<kid>_screen_time`), usable in automations and other dashboards.
 
 ## 13. Research basis
 

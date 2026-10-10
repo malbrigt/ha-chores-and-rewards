@@ -496,4 +496,4 @@ Three parallel reviews: UI against HA frontend conventions, backend against HA i
 
 **Tests:** 186 Python, 20 JS unit, 9 smoke (now also covering Escape, Enter-to-save and focus across a reload), and E2E. Screenshots reviewed.
 
-**Spec note for the user:** §11 still says the kitchen screen runs as an admin (superseded by D14), and §12 still lists sensors as an open decision (decided: yes, D2/D41).
+**Spec:** updated to Draft 7 at the user's request: §6.2 and §8 (kids fix past days, D8/D34), §11 (any HA user, escalating lockout, Reconfigure), and §12 (sensors decided).
