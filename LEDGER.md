@@ -330,13 +330,13 @@ Checked, no action needed:
 - Tokens: in memory only, sliding expiry.
 - Scrypt runs in the executor.
 
-Raised with the user (open):
-- The kitchen tablet runs as an HA **admin** (spec §11), which gives kids access to HA settings from the sidebar. Suggestion: allow kid commands for any logged-in user, keep PIN and admin commands token-gated, and run the tablet as a non-admin user.
-- Brute force: a 4-digit PIN with 5 tries per 60 s takes about 33 h to exhaust. An escalating lockout would be cheap to add.
+User decisions (implemented in a follow-up commit, "feat: non-admin tablet users; escalating PIN lockout"):
+- **D14 revised:** the user accepts the admin loophole, but wants the option to run the tablet as a normal user later. The panel and all commands now work for any logged-in HA user; parent and admin actions are gated by the PIN token.
+- **D40:** escalating lockout of 60 s → 5 min → 30 min. A correct PIN or a PIN change in the options flow resets it, and the change also ends all parent sessions (entry update listener → `sessions.reset()`).
 
 What we should have done from the start:
 - Render smoke tests (happy-dom) from step 1, rather than shipping step 8 with no render check.
 - Shared fixtures for any rule that exists on both sides.
 - A docs ↔ code contract test as soon as the contract was written.
 
-**Tests:** 142 Python, 17 JS unit and 6 smoke.
+**Tests:** 145 Python, 17 JS unit and 6 smoke.

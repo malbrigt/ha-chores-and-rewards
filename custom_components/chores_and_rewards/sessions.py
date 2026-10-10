@@ -13,7 +13,8 @@ from collections.abc import Callable
 from .logic import RuleError
 
 MAX_FAILURES = 5
-LOCKOUT_SECONDS = 60
+# Each lockout in a row lasts longer; a correct PIN or a PIN change resets the ladder.
+LOCKOUT_SECONDS = (60, 300, 1800)
 
 
 class PinSessions:
@@ -22,14 +23,15 @@ class PinSessions:
         timeout: float = 300,
         clock: Callable[[], float] = time.monotonic,
         max_failures: int = MAX_FAILURES,
-        lockout: float = LOCKOUT_SECONDS,
+        lockouts: tuple[float, ...] = LOCKOUT_SECONDS,
     ) -> None:
         self.timeout = timeout
         self._clock = clock
         self._max_failures = max_failures
-        self._lockout = lockout
+        self._lockouts = lockouts
         self._sessions: dict[str, float] = {}  # token -> expires at
         self._failures = 0
+        self._lockout_level = 0  # lockouts since the last correct PIN
         self._locked_until = 0.0
 
     def locked_out_for(self) -> float:
@@ -48,10 +50,13 @@ class PinSessions:
             self._failures += 1
             if self._failures >= self._max_failures:
                 self._failures = 0
-                self._locked_until = self._clock() + self._lockout
+                step = self._lockouts[min(self._lockout_level, len(self._lockouts) - 1)]
+                self._lockout_level += 1
+                self._locked_until = self._clock() + step
                 raise RuleError("locked_out")
             raise RuleError("wrong_pin")
         self._failures = 0
+        self._lockout_level = 0
         self._purge()
         token = secrets.token_urlsafe(32)
         self._sessions[token] = self._clock() + self.timeout
@@ -81,6 +86,13 @@ class PinSessions:
 
     def lock_all(self) -> None:
         self._sessions.clear()
+
+    def reset(self) -> None:
+        """PIN changed by an HA admin: end all sessions and clear failures and lockouts."""
+        self.lock_all()
+        self._failures = 0
+        self._lockout_level = 0
+        self._locked_until = 0.0
 
     def _purge(self) -> None:
         now = self._clock()

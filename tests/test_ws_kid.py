@@ -182,14 +182,14 @@ async def test_closed_week_refuses_taps(ws):
     assert await err(ws, "set_done", instance_id=9999, done=True) == "not_found"
 
 
-async def test_subscribe_requires_admin(
+async def test_subscribe_works_for_normal_user(
     hass, hass_ws_client, setup_entry, hass_read_only_access_token
 ):
+    """D14."""
     await setup_entry()
     client = await hass_ws_client(hass, hass_read_only_access_token)
     await client.send_json_auto_id({"type": "chores_and_rewards/subscribe"})
-    msg = await client.receive_json()
-    assert not msg["success"] and msg["error"]["code"] == "unauthorized"
+    assert (await client.receive_json())["success"]
 
 
 async def test_instances_carry_status_at(ws):

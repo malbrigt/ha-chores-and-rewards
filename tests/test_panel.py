@@ -9,7 +9,7 @@ async def test_panel_registered_and_removed(hass, setup_entry):
     entry = await setup_entry()
     panels = hass.data[frontend.DATA_PANELS]
     panel = panels[PANEL_URL]
-    assert panel.require_admin
+    assert not panel.require_admin  # D14
     assert panel.sidebar_title == "Gjøremål"
     module_url = panel.config["_panel_custom"]["module_url"]
     assert module_url.startswith(f"{STATIC_URL}/panel.js?v=")

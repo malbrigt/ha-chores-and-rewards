@@ -61,7 +61,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ChoresConfigEntry) -> bo
     # Fires at 00:00:00 in HA's local timezone.
     entry.async_on_unload(async_track_time_change(hass, _midnight, hour=0, minute=0, second=0))
     await _async_register_panel(hass, entry)
+    entry.async_on_unload(entry.add_update_listener(_async_entry_updated))
     return True
+
+
+async def _async_entry_updated(hass: HomeAssistant, entry: ChoresConfigEntry) -> None:
+    """The options flow changed the PIN: log out parents and clear any lockout."""
+    entry.runtime_data.sessions.reset()
 
 
 async def _async_register_panel(hass: HomeAssistant, entry: ChoresConfigEntry) -> None:
@@ -75,7 +81,7 @@ async def _async_register_panel(hass: HomeAssistant, entry: ChoresConfigEntry) -
             sidebar_title=PANEL_TITLE,
             sidebar_icon=PANEL_ICON,
             module_url=f"{STATIC_URL}/panel.js?v={version}",
-            require_admin=True,
+            require_admin=False,  # D14: the tablet may run as a normal HA user
             config={"version": str(version)},
         )
     entry.async_on_unload(

@@ -17,7 +17,7 @@ These fill gaps in the spec. A ✔ means the owner confirmed it.
 | D11 | Payout amount | The balance at the moment the payout is ticked. Anything earned later shows as "after payout". |
 | D12 | Deletion | Soft delete only. The DB lives at `/config/chores_and_rewards.db`. |
 | D13 | Timeouts | Idle returns to the daily view after 60 s. "Clean hands?" shows on wake after 5 min idle. The PIN locks after 5 min, sliding with activity. 5 wrong PINs → 60 s lockout. All configurable. |
-| D14 | Permissions | The panel and all WS commands are `require_admin`. PIN actions also need a session token. |
+| D14 ✔ | Permissions | Revised after the step 9 review. The panel and all WS commands work for any logged-in HA user; parent and admin actions are gated by the PIN token. Running the tablet as an admin (sidebar access to HA settings) or as a normal user is the installer's choice. |
 | D15 ✔ | Repo URL | `malbrigt/ha-chores-and-rewards`, as in the spec. |
 | D16 | Days | A day is a local date in HA's timezone. Catch-up processes each missed day in order. |
 | D17 | Weekdays | An empty weekday set means every day. |
@@ -43,3 +43,4 @@ These fill gaps in the spec. A ✔ means the owner confirmed it.
 | D37 ✔ | Day switching | The overview can switch days within the current week. Past days are read-only for kids (parents: step 9). Future days show an unsaved preview built from the schedule. Idle returns to today. |
 | D38 | UI verification | Rendering is tested with a happy-dom smoke test (`script/smoke` and CI) that drives the real element against a fake HA connection. Pixel-level look is still checked by a person on the tablet. |
 | D39 | Forms vs live updates | Form inputs are uncontrolled. Typed values are copied back before any re-render, and background reloads don't re-render while a form is open. |
+| D40 ✔ | PIN lockout | Escalating: 5 wrong PINs → 60 s, then 5 min, then 30 min. Reset by a correct PIN or by a PIN change in the options flow, which also ends all parent sessions. |

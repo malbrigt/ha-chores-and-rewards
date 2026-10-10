@@ -4,8 +4,8 @@ The panel talks to the integration over HA's WebSocket connection (`hass.connect
 
 ## Conventions
 - Every type is prefixed `chores_and_rewards/`; the prefix is left out below.
-- Every command requires an HA **admin** user (D14).
-- Commands marked 🔒 also need `token`, a parent session from `pin/unlock` (AC-7.3).
+- Any logged-in HA user can call the commands (D14). The person setting it up chooses whether the kitchen tablet runs as an admin or a normal user.
+- Commands marked 🔒 need `token`, a parent session from `pin/unlock` (AC-7.3). The PIN is the gate for parent and admin actions.
 - Errors are `{success: false, error: {code, message}}`. The panel translates `code`.
 - IDs are integers. Request fields never use `id` or `type`, because those are the WebSocket message id and command. Use `kid_id`, `chore_id`, `chore_type`, and so on. Dates are ISO `YYYY-MM-DD`. Weekdays run 0 = Monday … 6 = Sunday.
 - Maps keyed by currency id (`values`, `max`) use string keys in JSON, e.g. `{"1": 30}`.
@@ -32,7 +32,7 @@ The panel talks to the integration over HA's WebSocket connection (`hass.connect
 
 - A session expires after `pin_timeout_seconds` (default 300) of inactivity.
 - Every 🔒 call extends it.
-- 5 wrong PINs → `locked_out` for 60 s.
+- 5 wrong PINs → `locked_out`. Each lockout in a row lasts longer: 60 s → 5 min → 30 min. A correct PIN, or a PIN change in the integration options, resets the escalation (the PIN change also ends all parent sessions).
 
 ## Admin CRUD 🔒 (step 5)
 

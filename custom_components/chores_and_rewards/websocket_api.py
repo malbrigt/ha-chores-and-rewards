@@ -1,6 +1,7 @@
 """WebSocket API for the panel. Contract: docs/ws-api.md.
 
-Every command requires an HA admin user. Parent commands also need a PIN session token.
+Any logged-in HA user may call these (D14): the setup decides whether the kitchen tablet
+runs as an admin or a normal user. Parent and admin commands need a PIN session token.
 """
 
 from __future__ import annotations
@@ -128,12 +129,12 @@ def handler(*, parent: bool) -> Callable[[Handler], Any]:
 
 
 def command(schema: dict[Any, Any], *, parent: bool = True) -> Callable[[Handler], Any]:
-    """Admin-only async command; parent=True also requires a PIN session token."""
+    """Async command for any HA user; parent=True requires a PIN session token."""
     full = {**schema, **TOKEN} if parent else schema
 
     def decorator(func: Handler) -> Any:
         wrapped = websocket_api.async_response(handler(parent=parent)(func))
-        return websocket_api.websocket_command(full)(websocket_api.require_admin(wrapped))
+        return websocket_api.websocket_command(full)(wrapped)
 
     return decorator
 
@@ -223,7 +224,6 @@ def balances_dict(balances: dict[int, Balance]) -> dict[str, Any]:
 
 
 @websocket_api.websocket_command({vol.Required("type"): P + "subscribe"})
-@websocket_api.require_admin
 @callback
 def ws_subscribe(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]

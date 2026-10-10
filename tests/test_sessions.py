@@ -65,6 +65,35 @@ def test_lockout_after_five_failures(sessions, clock):
     assert sessions.attempts_left == 5
 
 
+def _fail_until_locked(sessions):
+    for _ in range(4):
+        with pytest.raises(RuleError, match="wrong_pin"):
+            sessions.unlock(False)
+    with pytest.raises(RuleError, match="locked_out"):
+        sessions.unlock(False)
+
+
+def test_lockout_escalates_and_correct_pin_resets(sessions, clock):
+    for expected in (60, 300, 1800, 1800):
+        _fail_until_locked(sessions)
+        assert sessions.locked_out_for() == expected
+        clock.t += expected
+    sessions.unlock(True)
+    _fail_until_locked(sessions)
+    assert sessions.locked_out_for() == 60
+
+
+def test_reset_clears_lockout_and_sessions(sessions, clock):
+    token = sessions.unlock(True)
+    _fail_until_locked(sessions)
+    sessions.reset()
+    assert sessions.locked_out_for() == 0
+    assert not sessions.touch(token)
+    assert sessions.attempts_left == 5
+    _fail_until_locked(sessions)
+    assert sessions.locked_out_for() == 60  # ladder restarted
+
+
 def test_success_resets_failures(sessions):
     for _ in range(4):
         with pytest.raises(RuleError):

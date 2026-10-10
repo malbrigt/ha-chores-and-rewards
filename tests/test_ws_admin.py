@@ -39,10 +39,32 @@ async def test_parent_commands_need_token(ws):
     assert await err(ws, "admin/list") == "invalid_format"  # token is required by schema
 
 
-async def test_non_admin_refused(hass, hass_ws_client, setup_entry, hass_read_only_access_token):
+async def test_non_admin_user_works_with_pin(
+    hass, hass_ws_client, setup_entry, hass_read_only_access_token
+):
+    """D14: a normal HA user can run the tablet; the PIN still gates parent actions."""
     await setup_entry()
     client = await hass_ws_client(hass, hass_read_only_access_token)
-    assert await err(client, "pin/unlock", pin=TEST_PIN) == "unauthorized"
+    assert (await ok(client, "get_state"))["kids"] == []
+    assert await err(client, "admin/list", token="nope") == "invalid_token"
+    token = await unlock(client)
+    assert (await ok(client, "admin/list", token=token))["kids"] == []
+
+
+async def test_pin_change_ends_sessions_and_lockout(hass, ws):
+    """D40: changing the PIN in the options flow resets sessions and escalation."""
+    token = await unlock(ws)
+    for _ in range(5):
+        await err(ws, "pin/unlock", pin="0000")
+    assert await err(ws, "pin/unlock", pin=TEST_PIN) == "locked_out"
+    result = await hass.config_entries.options.async_init(ws.entry.entry_id)
+    await hass.config_entries.options.async_configure(
+        result["flow_id"], {"pin": "5678", "pin_confirm": "5678"}
+    )
+    await hass.async_block_till_done()
+    assert not (await ok(ws, "pin/status", token=token))["valid"]
+    assert await err(ws, "pin/unlock", pin=TEST_PIN) == "wrong_pin"  # not locked any more
+    assert (await ok(ws, "pin/unlock", pin="5678"))["token"]
 
 
 async def test_not_loaded(hass, hass_ws_client, setup_entry):
