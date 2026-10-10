@@ -9,6 +9,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
@@ -29,6 +30,14 @@ def state(entity_id: str) -> str:
     )
     with urllib.request.urlopen(req) as resp:
         return json.loads(resp.read())["state"]
+
+
+def wait_for_state(entity_id: str, expected: str, timeout: float = 5.0) -> None:
+    deadline = time.monotonic() + timeout
+    while (value := state(entity_id)) != expected:
+        if time.monotonic() > deadline:
+            raise AssertionError(f"{entity_id} = {value!r}, expected {expected!r}")
+        time.sleep(0.2)
 
 
 def open_tablet(browser, name: str) -> Page:
@@ -70,7 +79,8 @@ def main() -> None:
         row_b = kid(b, "Ada").locator(".chore", has_text="Dekke bordet")
         expect(row_b).to_have_class(re.compile(r"\bdone\b"), timeout=5_000)
         expect(kid(b, "Ada")).to_contain_text("20/120 min")
-        assert state("sensor.ada_skjermtid") == "20", state("sensor.ada_skjermtid")
+        # Sensors refresh through a 1 s debouncer, so allow a moment for the value.
+        wait_for_state("sensor.ada_skjermtid", "20")
         b.screenshot(path=ARTIFACTS / "2-live-update.png")
 
         # Week view for Ada.
