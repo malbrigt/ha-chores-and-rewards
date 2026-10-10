@@ -366,3 +366,5 @@ What we should have done from the start:
 **Decisions added:** D41, D42.
 
 **Tests:** 147 Python, 17 JS unit, 6 smoke and 1 E2E scenario (about 25 checks).
+
+**Release:** v0.1.0 tagged and published on GitHub (https://github.com/malbrigt/ha-chores-and-rewards/releases/tag/v0.1.0). CI fully green on c46186a, including E2E.
