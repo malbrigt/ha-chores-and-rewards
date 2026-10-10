@@ -497,3 +497,11 @@ Three parallel reviews: UI against HA frontend conventions, backend against HA i
 **Tests:** 186 Python, 20 JS unit, 9 smoke (now also covering Escape, Enter-to-save and focus across a reload), and E2E. Screenshots reviewed.
 
 **Spec:** updated to Draft 7 at the user's request: §6.2 and §8 (kids fix past days, D8/D34), §11 (any HA user, escalating lockout, Reconfigure), and §12 (sensors decided).
+
+---
+
+## Docs reorganised (user request)
+- `chores-app-spec.md` moved to `docs/spec.md`, and `LEDGER.md` to `docs/ledger.md` (git history kept).
+- New `docs/database.md`: tables, relations (a mermaid ER diagram), derived values and schema rules.
+- README rewritten to be short: vibe-coded and use-at-your-own-risk notice, key concepts, how a week works, install, how it was built (spec → plan → ledger).
+- `CLAUDE.md` points to the ledger and decisions when debugging.

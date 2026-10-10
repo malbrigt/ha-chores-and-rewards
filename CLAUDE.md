@@ -1,6 +1,11 @@
 # Chores and Rewards: agent guide
 
-Spec: `chores-app-spec.md`. Decisions: `docs/decisions.md`. Acceptance criteria: `docs/acceptance.md`. API: `docs/ws-api.md`. Layout: `docs/ui-layout.md`. Progress: `LEDGER.md`.
+Docs live in `docs/`:
+- `spec.md`: what the app does.
+- `ledger.md`: how each step was built, including the bugs found along the way.
+- `decisions.md` (D-numbers), `acceptance.md` (AC-ids), `ws-api.md`, `ui-layout.md`, `database.md`.
+
+When debugging an existing problem, check `ledger.md` and `decisions.md` first. The cause or the intended behaviour is often recorded there.
 
 ## Commands
 - `script/setup`: create the Python 3.14 venv.
@@ -18,7 +23,7 @@ Spec: `chores-app-spec.md`. Decisions: `docs/decisions.md`. Acceptance criteria:
 - A new WS command needs an entry in `docs/ws-api.md` (enforced by a test).
 - Every state change must be audited with enough data to replay it (D46). A new audit action must be handled in `tests/replay.py`; `test_replay` enforces this.
 - Never tag or publish a release without the user's explicit go-ahead.
-- Commit: `git status` first (`git add -A` for new files), and one concise commit per step. Update `LEDGER.md`. After a push, check CI by commit SHA.
+- Commit: `git status` first (`git add -A` for new files), and one concise commit per step. Update `docs/ledger.md`. After a push, check CI by commit SHA.
 
 ## Non-goals (spec §10)
 No gamification (leaderboards, badges, streaks, confetti, bonus counters). No make-up chores, device control, auto payments, shop, carry-over, photo proof, approval queue or notifications.
