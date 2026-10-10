@@ -20,6 +20,19 @@ export const STRINGS = {
     week: "Uke {n}",
     lost: "−{n} tapt",
     back: "Tilbake",
+    more_actions: "Flere valg for {name}",
+    adjust_for: "Juster saldo for {name}",
+    open_week_of: "Vis uka til {name}",
+    prev_week: "Forrige uke",
+    next_week: "Neste uke",
+    backspace: "Slett siste siffer",
+    cell_label: "{name}, {day}: {status}",
+    st_done: "gjort",
+    st_missed: "ikke gjort",
+    st_rejected: "avvist",
+    st_excused: "fritatt",
+    st_pending: "ikke gjort ennå",
+    st_none: "ikke planlagt",
     today: "I dag",
     prev_day: "Forrige dag",
     next_day: "Neste dag",
@@ -164,6 +177,19 @@ export const STRINGS = {
     week: "Week {n}",
     lost: "−{n} lost",
     back: "Back",
+    more_actions: "More options for {name}",
+    adjust_for: "Adjust balance for {name}",
+    open_week_of: "Show {name}'s week",
+    prev_week: "Previous week",
+    next_week: "Next week",
+    backspace: "Delete last digit",
+    cell_label: "{name}, {day}: {status}",
+    st_done: "done",
+    st_missed: "not done",
+    st_rejected: "rejected",
+    st_excused: "excused",
+    st_pending: "not done yet",
+    st_none: "not scheduled",
     today: "Today",
     prev_day: "Previous day",
     next_day: "Next day",
@@ -504,7 +530,42 @@ export function formatTimestamp(iso, lang) {
   }).format(new Date(iso));
 }
 
-// --- styles ---------------------------------------------------------------------
+// --- template utils -----------------------------------------------------------
+// html`` escapes every interpolated value unless it is wrapped in raw() or is itself the
+// result of html``. Arrays are joined. null/undefined/false render as nothing.
+
+class Raw {
+  constructor(text) {
+    this.text = text;
+  }
+
+  toString() {
+    return this.text;
+  }
+}
+
+export function raw(text) {
+  return new Raw(String(text));
+}
+
+function renderValue(value) {
+  if (value === null || value === undefined || value === false) return "";
+  if (value instanceof Raw) return value.text;
+  if (Array.isArray(value)) return value.map(renderValue).join("");
+  return escapeHtml(value);
+}
+
+export function html(strings, ...values) {
+  let out = strings[0];
+  values.forEach((value, i) => {
+    out += renderValue(value) + strings[i + 1];
+  });
+  return new Raw(out);
+}
+
+const icon = (name) => html`<ha-icon icon="${name}"></ha-icon>`;
+
+// --- styles (HA 2026 theme tokens; dark mode comes from the variables) ----------
 
 const STYLES = `
   :host {
@@ -512,44 +573,28 @@ const STYLES = `
     min-height: 100vh;
     background: var(--primary-background-color);
     color: var(--primary-text-color);
-    font-family: var(--paper-font-body1_-_font-family, system-ui, sans-serif);
+    font-family: var(--ha-font-family-body, Roboto, system-ui, sans-serif);
     -webkit-tap-highlight-color: transparent;
-    user-select: none;
+    --cr-radius: var(--ha-card-border-radius, var(--ha-border-radius-lg, 12px));
+    --cr-radius-sm: var(--ha-border-radius-md, 8px);
+    --cr-touch: 44px;
   }
   header {
     display: flex;
     align-items: center;
-    gap: 12px;
-    min-height: 56px;
-    padding: 0 16px;
-    background: var(--app-header-background-color, var(--primary-color));
-    color: var(--app-header-text-color, var(--text-primary-color, #fff));
-    font-size: 1.3rem;
+    gap: 8px;
+    box-sizing: border-box;
+    min-height: var(--header-height, 56px);
+    padding: var(--safe-area-inset-top, 0) 12px 0 4px;
+    background: var(--app-header-background-color, var(--primary-background-color));
+    color: var(--app-header-text-color, var(--primary-text-color));
+    border-bottom: var(--app-header-border-bottom, 1px solid var(--divider-color));
+    font-size: 1.25rem;
   }
-  header .title { flex: 1; display: flex; align-items: center; gap: 8px; }
-  header .nav { font-size: 1.8rem; width: 44px; height: 44px; text-align: center; }
-  header .nav[disabled] { opacity: 0.3; }
-  header .pill {
-    padding: 4px 12px;
-    border: 1px solid currentColor;
-    border-radius: 16px;
-    font-size: 1rem;
-  }
-  header .pill.active { background: rgba(255, 255, 255, 0.25); }
-  header .other-day { font-style: italic; }
-  header .tabs { display: flex; gap: 6px; }
-  header .lock { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; }
-  header .lock ha-icon { --mdc-icon-size: 26px; }
-  header .lock.open { background: var(--warning-color, #ffa600); color: #fff; }
-  .dot {
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: var(--warning-color, #ffa600);
-    margin-left: 4px;
-    vertical-align: middle;
-  }
+  .title { flex: 1; display: flex; align-items: center; gap: 4px; min-width: 0; }
+  .title .text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .title .other-day { font-style: italic; }
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
   button {
     font: inherit;
     color: inherit;
@@ -559,35 +604,73 @@ const STYLES = `
     padding: 0;
     text-align: left;
   }
+  button:focus-visible, select:focus-visible, input:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+  }
+  .icon-btn {
+    width: var(--cr-touch);
+    height: var(--cr-touch);
+    display: inline-grid;
+    place-items: center;
+    border-radius: 50%;
+    flex: none;
+  }
+  .icon-btn[disabled] { opacity: 0.3; cursor: default; }
+  .lock.open { background: var(--warning-color, #ffa600); color: var(--text-primary-color, #fff); }
+  .pill {
+    min-height: var(--cr-touch);
+    padding: 0 16px;
+    border: 1px solid var(--divider-color);
+    border-radius: calc(var(--cr-touch) / 2);
+    font-size: 1rem;
+  }
+  .pill.active { background: var(--primary-color); color: var(--text-primary-color, #fff); border-color: transparent; }
+  .dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--warning-color, #ffa600);
+    margin-left: 6px;
+    vertical-align: middle;
+  }
   main { padding: 12px; }
-  .columns { display: grid; gap: 12px; }
+  .columns { display: grid; gap: 12px; grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr)); }
+  :host([narrow]) .columns { grid-template-columns: minmax(0, 1fr); }
+  @media (max-width: 700px) { .columns { grid-template-columns: minmax(0, 1fr); } }
   .card, .kid {
     background: var(--card-background-color);
-    border-radius: var(--ha-card-border-radius, 12px);
+    border-radius: var(--cr-radius);
     padding: 12px 14px 16px;
     box-shadow: var(--ha-card-box-shadow, none);
     border: 1px solid var(--divider-color);
   }
   .card { margin-bottom: 12px; }
   .card h2 { margin: 4px 0 10px; font-size: 1.2rem; display: flex; align-items: center; gap: 8px; }
-  .card h2 .grow { flex: 1; }
-  .kid-head { display: flex; align-items: center; }
+  .grow { flex: 1; }
+  .kid-head { display: flex; align-items: center; gap: 4px; }
   .kid-name {
     flex: 1;
+    min-height: var(--cr-touch);
     font-size: 1.5rem;
     font-weight: 600;
-    padding: 4px 0 8px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
   }
-  .kid-name::after { content: " ›"; color: var(--secondary-text-color); }
+  .kid-name ha-icon { color: var(--secondary-text-color); }
   .small-btn {
-    padding: 6px 12px;
-    border-radius: 16px;
+    min-height: var(--cr-touch);
+    padding: 0 14px;
+    border-radius: calc(var(--cr-touch) / 2);
     border: 1px solid var(--divider-color);
     font-size: 0.95rem;
   }
   .primary-btn {
-    padding: 8px 16px;
-    border-radius: 10px;
+    min-height: var(--cr-touch);
+    padding: 0 16px;
+    border-radius: var(--cr-radius-sm);
     background: var(--primary-color);
     color: var(--text-primary-color, #fff);
   }
@@ -601,14 +684,8 @@ const STYLES = `
   }
   .meter-label .amount { margin-left: auto; color: var(--primary-text-color); }
   .meter-label .lost { color: var(--error-color); font-size: 0.85rem; }
-  ha-icon { --mdc-icon-size: 18px; }
-  .bar {
-    height: 10px;
-    border-radius: 5px;
-    background: var(--divider-color);
-    overflow: hidden;
-    margin-top: 3px;
-  }
+  ha-icon { --mdc-icon-size: 20px; }
+  .bar { height: 10px; border-radius: 5px; background: var(--divider-color); overflow: hidden; margin-top: 3px; }
   .fill { height: 100%; background: var(--primary-color); border-radius: 5px; }
   .slot {
     margin: 14px 0 4px;
@@ -618,160 +695,160 @@ const STYLES = `
     color: var(--secondary-text-color);
   }
   .row { display: flex; align-items: center; border-bottom: 1px solid var(--divider-color); }
-  .chore {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex: 1;
-    min-height: 56px;
-    font-size: 1.15rem;
-  }
-  .more { width: 44px; height: 44px; text-align: center; font-size: 1.4rem; color: var(--secondary-text-color); }
+  .chore { display: flex; align-items: center; gap: 12px; flex: 1; min-height: 56px; font-size: 1.15rem; }
   .box {
     flex: none;
     display: grid;
     place-items: center;
     width: 34px;
     height: 34px;
-    border-radius: 8px;
+    border-radius: var(--cr-radius-sm);
     border: 2px solid var(--secondary-text-color);
     font-size: 1.3rem;
   }
   .chore.done .box {
     background: var(--success-color, #43a047);
     border-color: var(--success-color, #43a047);
-    color: #fff;
+    color: var(--text-primary-color, #fff);
   }
-  .chore.missed .box,
-  .chore.rejected .box { border-color: var(--error-color); color: var(--error-color); }
+  .chore.missed .box, .chore.rejected .box { border-color: var(--error-color); color: var(--error-color); }
   .chore.excused .box { color: var(--secondary-text-color); }
   .chore[disabled] { cursor: default; opacity: 0.75; }
   .bonus { margin-top: 18px; padding-top: 6px; border-top: 2px dashed var(--divider-color); opacity: 0.6; }
   .bonus .chore { min-height: 48px; font-size: 1rem; }
   .bonus .box { border-radius: 50%; width: 28px; height: 28px; }
-  .empty { color: var(--secondary-text-color); padding: 12px 0; }
-  .muted { color: var(--secondary-text-color); }
+  .late { color: var(--warning-color, #ffa600); --mdc-icon-size: 16px; margin-left: 4px; }
+  .empty, .muted { color: var(--secondary-text-color); }
+  .empty { padding: 12px 0; }
   .warn { color: var(--warning-color, #ffa600); }
   .week-meters { display: flex; flex-wrap: wrap; gap: 8px 32px; margin-bottom: 12px; }
   .week-meters .meter { flex: 1 1 260px; }
   table { width: 100%; border-collapse: collapse; }
   table.week {
     background: var(--card-background-color);
-    border-radius: var(--ha-card-border-radius, 12px);
+    border-radius: var(--cr-radius);
     overflow: hidden;
     font-size: 1.1rem;
   }
-  table.week th, table.week td, table.list td, table.list th {
+  th, td {
     border-bottom: 1px solid var(--divider-color);
     padding: 10px 6px;
     text-align: center;
+    vertical-align: middle;
   }
-  table.week th:first-child, table.week td:first-child,
+  table.week th:first-child, table.week td:first-child { text-align: left; padding-left: 14px; }
   table.list td, table.list th { text-align: left; }
-  table.week th:first-child, table.week td:first-child { padding-left: 14px; }
-  table.list td.num, table.list th.num { text-align: right; white-space: nowrap; }
-  table.list td.actions { text-align: right; white-space: nowrap; }
+  table.list .num { text-align: right; white-space: nowrap; }
+  table.list .actions { text-align: right; white-space: nowrap; }
+  table.list { user-select: text; }
   table.week .today { background: rgba(var(--rgb-primary-color, 3, 169, 244), 0.12); }
   table.week tr.bonus-row { opacity: 0.6; }
   table.week td.cell { font-size: 1.4rem; width: 9%; }
   table.week td.cell.done { color: var(--success-color, #43a047); }
   table.week td.cell.missed, table.week td.cell.rejected { color: var(--error-color); }
-  table.week td button { width: 100%; text-align: center; font-size: 1.4rem; min-height: 44px; }
-  .overlay {
-    position: fixed;
-    inset: 0;
-    display: grid;
-    place-items: center;
-    background: rgba(0, 0, 0, 0.55);
-    z-index: 10;
-  }
-  .clean-hands {
-    background: var(--primary-background-color);
-    font-size: 3rem;
-    text-align: center;
-  }
-  .clean-hands small { display: block; font-size: 1.2rem; color: var(--secondary-text-color); margin-top: 16px; }
-  .dialog {
-    background: var(--card-background-color);
-    border-radius: 16px;
-    padding: 24px;
-    min-width: 320px;
-    max-width: 90vw;
-    max-height: 90vh;
-    overflow: auto;
-    font-size: 1.2rem;
-  }
-  .dialog h3 { margin: 0 0 16px; }
-  .dialog .actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
-  .dialog .actions button, .sheet button {
-    padding: 12px 24px;
-    border-radius: 10px;
-    font-size: 1.1rem;
-    border: 1px solid var(--divider-color);
-  }
-  .dialog .actions .danger { color: var(--error-color); margin-right: auto; }
-  .dialog .actions .primary { background: var(--primary-color); color: var(--text-primary-color, #fff); border: none; }
-  .sheet { display: flex; flex-direction: column; gap: 10px; min-width: 300px; }
-  .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; user-select: text; }
-  .field label { font-size: 0.9rem; color: var(--secondary-text-color); }
-  .field input[type="text"], .field input[type="number"], .field select {
+  table.week td button { width: 100%; min-height: var(--cr-touch); text-align: center; font-size: 1.4rem; }
+  .filters { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  select, input[type="text"], input[type="number"] {
     font: inherit;
-    font-size: 1.1rem;
-    padding: 8px 10px;
-    border-radius: 8px;
+    font-size: 1.05rem;
+    min-height: var(--cr-touch);
+    box-sizing: border-box;
+    padding: 0 10px;
+    border-radius: var(--cr-radius-sm);
     border: 1px solid var(--divider-color);
     background: var(--primary-background-color);
     color: var(--primary-text-color);
   }
-  .field.check { flex-direction: row; align-items: center; gap: 10px; }
-  .field input[type="checkbox"] { width: 24px; height: 24px; }
+  .check { display: flex; align-items: center; gap: 8px; min-height: var(--cr-touch); }
+  input[type="checkbox"] { width: 24px; height: 24px; accent-color: var(--primary-color); }
+  dialog {
+    border: none;
+    padding: 24px;
+    border-radius: var(--ha-dialog-border-radius, 24px);
+    background: var(--card-background-color);
+    color: var(--primary-text-color);
+    min-width: min(320px, 90vw);
+    max-width: 90vw;
+    max-height: 90vh;
+    overflow: auto;
+    font-size: 1.15rem;
+  }
+  dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
+  dialog h3 { margin: 0 0 16px; }
+  .actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; flex-wrap: wrap; }
+  .actions button, .sheet button {
+    min-height: var(--cr-touch);
+    padding: 0 20px;
+    border-radius: var(--cr-radius-sm);
+    border: 1px solid var(--divider-color);
+  }
+  .actions .primary { background: var(--primary-color); color: var(--text-primary-color, #fff); border: none; }
+  .actions .danger { color: var(--error-color); margin-right: auto; }
+  .sheet { display: flex; flex-direction: column; gap: 10px; }
+  .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+  .field label, fieldset legend { font-size: 0.9rem; color: var(--secondary-text-color); }
+  fieldset { border: none; padding: 0; margin: 0 0 12px; }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; }
   .chips label {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 6px 12px;
+    min-height: var(--cr-touch);
+    padding: 0 12px;
     border: 1px solid var(--divider-color);
-    border-radius: 16px;
-    color: var(--primary-text-color);
+    border-radius: calc(var(--cr-touch) / 2);
   }
-  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
   .pinpad { text-align: center; }
   .pin-dots { font-size: 2rem; letter-spacing: 0.4em; min-height: 2.6rem; margin-bottom: 12px; }
   .keys { display: grid; grid-template-columns: repeat(3, 80px); gap: 12px; justify-content: center; }
   .keys button {
     height: 64px;
-    border-radius: 12px;
+    border-radius: var(--cr-radius-sm);
     border: 1px solid var(--divider-color);
     font-size: 1.6rem;
     text-align: center;
   }
+  dialog.clean-hands { padding: 0; }
+  .clean-hands button {
+    display: grid;
+    place-items: center;
+    gap: 16px;
+    width: min(600px, 90vw);
+    padding: 48px 24px;
+    font-size: 2.5rem;
+    text-align: center;
+  }
+  .clean-hands ha-icon { --mdc-icon-size: 72px; color: var(--primary-color); }
+  .clean-hands small { font-size: 1.1rem; color: var(--secondary-text-color); }
   .toast {
     position: fixed;
     left: 50%;
     bottom: 24px;
     transform: translateX(-50%);
     background: var(--error-color);
-    color: #fff;
+    color: var(--text-primary-color, #fff);
     padding: 12px 20px;
-    border-radius: 10px;
+    border-radius: var(--cr-radius-sm);
     font-size: 1.1rem;
     z-index: 20;
   }
-  .toast.info { background: var(--primary-color); }
-  .late { color: var(--warning-color, #ffa600); margin-left: 6px; font-size: 0.9em; }
-  .filters { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  .filters select {
-    font: inherit;
-    padding: 6px 10px;
-    border-radius: 8px;
-    border: 1px solid var(--divider-color);
-    background: var(--primary-background-color);
-    color: var(--primary-text-color);
-  }
-  .filters .check { display: flex; align-items: center; gap: 6px; }
-  .filters .grow { flex: 1; }
+  .toast[hidden] { display: none; }
+  .toast.info { background: var(--primary-color); color: var(--text-primary-color, #fff); }
 `;
+
+const SHELL = `
+  <header>
+    <ha-menu-button></ha-menu-button>
+    <div class="title" id="title"></div>
+    <nav class="tabs" id="tabs"></nav>
+    <button class="icon-btn lock" id="lock" data-action="lock-toggle"></button>
+  </header>
+  <main id="main"></main>
+  <div id="dialogs"></div>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>`;
+
+// Order matters: later dialogs open on top of earlier ones.
+const DIALOG_KINDS = ["form", "sheet", "confirm", "pin", "clean"];
 
 // --- the panel element ---------------------------------------------------------
 
@@ -794,16 +871,18 @@ export class ChoresPanel extends Base {
     this._admin = null;
     this._log = null;
     this._logFilter = { kidId: null, group: "all", late: false, week: null };
-    this._dialog = null; // {text, onYes}
+    this._dialog = null; // confirm: {text, onYes}
     this._sheet = null; // {title, items: [{label, run}]}
-    this._form = null; // {title, fields, values, onSave, onDelete}
+    this._form = null; // {title, fields, values, onSave, onDelete, name}
     this._toast = null;
     this._cleanHands = false;
+    this._dialogEls = {};
+    this._reloadSeq = 0;
     this._lastActivity = Date.now();
     this._onActivity = () => {
       this._lastActivity = Date.now();
     };
-    this._onKey = (ev) => this._pinKey(ev);
+    this._onReady = () => this._scheduleReload();
   }
 
   // HA sets these properties on the panel element.
@@ -825,6 +904,7 @@ export class ChoresPanel extends Base {
 
   set narrow(narrow) {
     this._narrow = narrow;
+    this.toggleAttribute?.("narrow", Boolean(narrow));
     this._syncMenuButton();
   }
 
@@ -837,15 +917,10 @@ export class ChoresPanel extends Base {
   }
 
   connectedCallback() {
-    if (!this.shadowRoot) {
-      this.attachShadow({ mode: "open" });
-      this.shadowRoot.addEventListener("click", (ev) => this._onClick(ev));
-      this.shadowRoot.addEventListener("change", (ev) => this._onChange(ev));
-    }
+    if (!this.shadowRoot) this._buildShell();
     for (const type of ["pointerdown", "keydown"]) {
-      window.addEventListener(type, this._onActivity, { capture: true });
+      this.addEventListener(type, this._onActivity, { capture: true });
     }
-    window.addEventListener("keydown", this._onKey);
     this._idleTimer = setInterval(() => this._checkIdle(), 2000);
     this._render();
     if (this._hass) this._connect();
@@ -853,14 +928,40 @@ export class ChoresPanel extends Base {
 
   disconnectedCallback() {
     for (const type of ["pointerdown", "keydown"]) {
-      window.removeEventListener(type, this._onActivity, { capture: true });
+      this.removeEventListener(type, this._onActivity, { capture: true });
     }
-    window.removeEventListener("keydown", this._onKey);
     clearInterval(this._idleTimer);
     clearTimeout(this._toastTimer);
     clearTimeout(this._reloadTimer);
+    clearTimeout(this._retryTimer);
+    this._hass?.connection.removeEventListener("ready", this._onReady);
     this._unsubscribe?.then((unsub) => unsub()).catch(() => {});
     this._unsubscribe = null;
+  }
+
+  _buildShell() {
+    const root = this.attachShadow({ mode: "open" });
+    root.innerHTML = SHELL;
+    // Styles are parsed once (constructable stylesheet), with a <style> fallback.
+    try {
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync(STYLES);
+      root.adoptedStyleSheets = [sheet];
+    } catch {
+      const style = document.createElement("style");
+      style.textContent = STYLES;
+      root.prepend(style);
+    }
+    this._els = {
+      title: root.getElementById("title"),
+      tabs: root.getElementById("tabs"),
+      lock: root.getElementById("lock"),
+      main: root.getElementById("main"),
+      dialogs: root.getElementById("dialogs"),
+      toast: root.getElementById("toast"),
+    };
+    root.addEventListener("click", (ev) => this._onClick(ev));
+    root.addEventListener("change", (ev) => this._onChange(ev));
   }
 
   get _parent() {
@@ -894,14 +995,17 @@ export class ChoresPanel extends Base {
 
   async _connect() {
     if (this._unsubscribe || !this._hass) return;
-    // HA's websocket library re-subscribes by itself after a reconnect.
+    // HA's websocket library re-subscribes by itself after a reconnect; `ready` refreshes.
+    this._hass.connection.removeEventListener("ready", this._onReady);
+    this._hass.connection.addEventListener("ready", this._onReady);
     this._unsubscribe = this._hass.connection.subscribeMessage(() => this._scheduleReload(), {
       type: `${P}subscribe`,
     });
-    this._hass.connection.addEventListener("ready", () => this._scheduleReload());
     try {
       await this._unsubscribe;
     } catch (err) {
+      this._unsubscribe = null; // retry, e.g. if the integration was still loading
+      this._retryTimer = setTimeout(() => this._connect(), 5000);
       this._showError(err);
     }
     await this._reload();
@@ -913,21 +1017,24 @@ export class ChoresPanel extends Base {
   }
 
   async _reload() {
+    const seq = ++this._reloadSeq; // only the newest reload may update the screen
     try {
-      this._state = await this._ws("get_state", this._day ? { day: this._day } : {});
+      let state = await this._ws("get_state", this._day ? { day: this._day } : {});
       // A new week (midnight Sunday) or a stale day snaps back to today.
-      if (this._day && !sameWeek(this._state.today, this._day)) {
+      if (this._day && !sameWeek(state.today, this._day)) {
         this._day = null;
-        this._state = await this._ws("get_state");
+        state = await this._ws("get_state");
       }
-      if (this._view.name === "week") {
-        this._week = await this._ws("get_week", { kid_id: this._view.kidId });
-      }
+      const week =
+        this._view.name === "week" ? await this._ws("get_week", { kid_id: this._view.kidId }) : null;
+      if (seq !== this._reloadSeq) return;
+      this._state = state;
+      this._week = week;
       if (this._parent) await this._reloadParent();
     } catch (err) {
       this._showError(err);
     }
-    this._render({ background: true });
+    if (seq === this._reloadSeq) this._render({ background: true });
   }
 
   async _reloadParent() {
@@ -964,21 +1071,37 @@ export class ChoresPanel extends Base {
     return null;
   }
 
+  /** A minimal instance for a past week-grid cell (not in the day's board). */
+  _weekInstance(id, day) {
+    const row = this._week?.rows.find((r) => r.ids?.[day] === id);
+    if (!row) return null;
+    return { id, day, type: row.type, status: row.cells[day], name: row.name, kid_id: this._view.kidId };
+  }
+
   async _setDone(inst, done) {
     try {
       const { instance } = await this._ws("set_done", { instance_id: inst.id, done });
-      Object.assign(inst, instance); // instant feedback; the update event reloads the rest
+      this._replaceInstance(instance); // instant feedback; the update event reloads the rest
       this._render();
     } catch (err) {
       this._showError(err);
     }
   }
 
-  async _run(fn, { reload = true, info = null } = {}) {
+  _replaceInstance(instance) {
+    for (const kid of Object.values(this._state?.board ?? {})) {
+      for (const list of [kid.chores, kid.bonus]) {
+        const i = list.findIndex((x) => x.id === instance.id);
+        if (i >= 0) list[i] = instance;
+      }
+    }
+  }
+
+  async _run(fn, { info = null } = {}) {
     try {
       await fn();
       if (info) this._showInfo(info);
-      if (reload) await this._reload();
+      await this._reload();
     } catch (err) {
       this._showError(err);
     }
@@ -989,6 +1112,7 @@ export class ChoresPanel extends Base {
   async _submitPin() {
     const pin = this._pin;
     this._pin = "";
+    this._render();
     try {
       const { token, expires_in } = await this._ws("pin/unlock", { pin });
       this._token = token;
@@ -1016,12 +1140,13 @@ export class ChoresPanel extends Base {
   }
 
   _pinKey(ev) {
-    if (this._pin === null) return;
     if (/^\d$/.test(ev.key)) this._pinDigit(ev.key);
     else if (ev.key === "Backspace") this._pin = this._pin.slice(0, -1);
-    else if (ev.key === "Enter") this._submitPin();
-    else if (ev.key === "Escape") this._pin = null;
-    else return;
+    else if (ev.key === "Enter") {
+      ev.preventDefault();
+      this._submitPin();
+      return;
+    } else return;
     this._render();
   }
 
@@ -1047,19 +1172,6 @@ export class ChoresPanel extends Base {
         this._week = null;
       },
       toggle: () => this._toggle(id, el.dataset.confirm === "1", el.dataset.day),
-      details: () => {
-        this._logFilter = {
-          kidId: Number(el.dataset.kid),
-          group: "review",
-          late: false,
-          week: this._payouts?.week ?? null,
-        };
-        this._openTab("log");
-      },
-      "log-week": () => {
-        this._logFilter.week = el.dataset.week || null;
-        this._reload();
-      },
       more: () => this._openSheet(id, el.dataset.day),
       "dialog-yes": () => {
         const { onYes } = this._dialog;
@@ -1077,7 +1189,6 @@ export class ChoresPanel extends Base {
       "sheet-close": () => {
         this._sheet = null;
       },
-      // parent
       "lock-toggle": () => (this._parent ? this._lock() : (this._pin = "")),
       "pin-digit": () => this._pinDigit(el.dataset.digit),
       "pin-back": () => {
@@ -1089,6 +1200,19 @@ export class ChoresPanel extends Base {
       },
       tab: () => this._openTab(el.dataset.tab),
       adjust: () => this._openAdjust(Number(el.dataset.kid)),
+      details: () => {
+        this._logFilter = {
+          kidId: Number(el.dataset.kid),
+          group: "review",
+          late: false,
+          week: this._payouts?.week ?? null,
+        };
+        this._openTab("log");
+      },
+      "log-week": () => {
+        this._logFilter.week = el.dataset.week || null;
+        this._reload();
+      },
       "payout-week": () => {
         this._payoutWeek = el.dataset.week || null;
         this._reload();
@@ -1172,18 +1296,10 @@ export class ChoresPanel extends Base {
     if (!inst) return;
     const items = parentActions(inst, this._state.today).map((status) => ({
       label: t(L, `act_${status}`),
-      run: () =>
-        this._run(() => this._pws("parent/set_status", { instance_id: inst.id, status })),
+      run: () => this._run(() => this._pws("parent/set_status", { instance_id: inst.id, status })),
     }));
     items.push({ label: t(L, "adjust"), run: () => this._openAdjust(inst.kid_id) });
     this._sheet = { title: inst.name, items };
-  }
-
-  /** Build a minimal instance from the week grid (past days aren't in today's board). */
-  _weekInstance(id, day) {
-    const row = this._week?.rows.find((r) => r.ids?.[day] === id);
-    if (!row) return null;
-    return { id, day, type: row.type, status: row.cells[day], name: row.name, kid_id: this._view.kidId };
   }
 
   _checkIdle() {
@@ -1196,15 +1312,16 @@ export class ChoresPanel extends Base {
       this._lock();
       changed = true;
     }
+    const busy = this._form || this._pin !== null; // never interrupt typing
     const away = this._view.name !== "overview" || this._day;
-    if (away && !this._form && idle > settings.idle_seconds * 1000) {
+    if (away && !busy && idle > settings.idle_seconds * 1000) {
       this._view = { name: "overview" };
       this._day = null;
       this._dialog = this._sheet = null;
       this._scheduleReload();
       changed = true;
     }
-    if (settings.clean_hands_enabled && !this._cleanHands && idle > settings.wake_seconds * 1000) {
+    if (settings.clean_hands_enabled && !busy && !this._cleanHands && idle > settings.wake_seconds * 1000) {
       this._cleanHands = true;
       changed = true;
     }
@@ -1221,33 +1338,34 @@ export class ChoresPanel extends Base {
 
   _setToast(text, kind) {
     this._toast = { text, kind };
-    this._render();
+    this._renderToast();
     clearTimeout(this._toastTimer);
     this._toastTimer = setTimeout(() => {
       this._toast = null;
-      this._render();
+      this._renderToast();
     }, 4000);
   }
 
   // --- forms ----------------------------------------------------------------------
-  // Inputs are uncontrolled: values are read from the DOM. Before any re-render the typed
-  // values are copied back into the form, and background data reloads skip rendering
-  // while a form is open, so live updates never steal focus mid-typing.
+  // A form's inputs are rendered once when it opens and read from the DOM on save,
+  // so background updates never touch what is being typed.
 
   _openForm(form) {
     this._form = form;
     this._render();
   }
 
+  _formEl() {
+    return this._dialogEls.form?.querySelector("form.form") ?? null;
+  }
+
   _readForm() {
-    const root = this.shadowRoot.querySelector("form.form");
+    const root = this._formEl();
     const values = {};
     for (const f of this._form.fields) {
       if (f.type === "bool") values[f.key] = root.querySelector(`[name="${f.key}"]`).checked;
       else if (f.type === "multi") {
-        values[f.key] = [...root.querySelectorAll(`[name="${f.key}"]:checked`)].map((i) =>
-          Number(i.value),
-        );
+        values[f.key] = [...root.querySelectorAll(`[name="${f.key}"]:checked`)].map((i) => Number(i.value));
       } else if (f.type === "number") {
         values[f.key] = parseOptionalInt(root.querySelector(`[name="${f.key}"]`).value);
       } else values[f.key] = root.querySelector(`[name="${f.key}"]`).value;
@@ -1321,10 +1439,7 @@ export class ChoresPanel extends Base {
         { key: "sort", type: "number", label: t(L, "f_sort") },
         { key: "active", type: "bool", label: t(L, "f_active") },
       ],
-      values: {
-        ...kid,
-        ...Object.fromEntries(currencies.map((c) => [`max_${c.id}`, kid.max?.[String(c.id)]])),
-      },
+      values: { ...kid, ...Object.fromEntries(currencies.map((c) => [`max_${c.id}`, kid.max?.[String(c.id)]])) },
       onSave: (v) =>
         this._pws("admin/kid/save", {
           ...(kidId ? { kid_id: kidId } : {}),
@@ -1408,9 +1523,7 @@ export class ChoresPanel extends Base {
         });
         // AC-5.5: a warning only; the chore is saved.
         if (result.warnings.length) {
-          const names = result.warnings
-            .map((id) => this._admin.currencies.find((c) => c.id === id)?.name)
-            .join(", ");
+          const names = result.warnings.map((id) => this._admin.currencies.find((c) => c.id === id)?.name).join(", ");
           this._showInfo(t(L, "warn_after_payout", { names }));
         }
       },
@@ -1496,6 +1609,8 @@ export class ChoresPanel extends Base {
   }
 
   // --- rendering -------------------------------------------------------------------
+  // The shell (header, main, dialog host, toast) is built once. Each render updates the
+  // header parts and <main>, and opens/closes native <dialog>s to match the state.
 
   _syncMenuButton() {
     const button = this.shadowRoot?.querySelector("ha-menu-button");
@@ -1506,311 +1621,295 @@ export class ChoresPanel extends Base {
   }
 
   _render({ background = false } = {}) {
-    if (!this.shadowRoot) return;
-    if (this._form) {
-      if (background) return; // don't disturb typing; the next render picks up new data
-      if (this.shadowRoot.querySelector("form.form")) Object.assign(this._form.values, this._readForm());
-    }
+    if (!this._els) return;
     const L = this._lang;
     const s = this._state;
-    let title = t(L, "loading");
-    let body = "";
+    let title = html`<span class="text">${t(L, "loading")}</span>`;
+    let body = html``;
     if (s) {
       if (this._view.name === "week") {
         const kid = s.kids.find((k) => k.id === this._view.kidId);
         const week = this._week ? isoWeek(this._week.week) : isoWeek(s.today);
-        title = `${escapeHtml(kid?.name ?? "")} · ${t(L, "week", { n: week })}`;
+        title = html`<button class="icon-btn" data-action="back" aria-label="${t(L, "back")}">
+            ${icon("mdi:arrow-left")}</button
+          ><span class="text">${kid?.name ?? ""} · ${t(L, "week", { n: week })}</span>`;
         body = this._renderWeek();
-      } else if (this._parent && this._tab === "payouts") {
-        title = t(L, "tab_payouts");
-        body = this._renderPayouts();
-      } else if (this._parent && this._tab === "admin") {
-        title = t(L, "tab_admin");
-        body = this._renderAdmin();
-      } else if (this._parent && this._tab === "log") {
-        title = t(L, "tab_log");
-        body = this._renderLog();
+      } else if (this._parent && this._tab !== "today") {
+        title = html`<span class="text">${t(L, `tab_${this._tab}`)}</span>`;
+        body = { payouts: () => this._renderPayouts(), admin: () => this._renderAdmin(), log: () => this._renderLog() }[
+          this._tab
+        ]();
       } else {
         title = this._dayHeader();
         body = this._renderOverview();
       }
     }
-    const back =
-      this._view.name === "week"
-        ? `<button class="nav" data-action="back" aria-label="${t(L, "back")}">←</button>`
-        : "";
-    this.shadowRoot.innerHTML = `
-      <style>${STYLES}</style>
-      <header><ha-menu-button></ha-menu-button>${back}<span class="title">${title}</span>
-        ${this._renderTabs()}
-        <button class="lock ${this._parent ? "open" : ""}" data-action="lock-toggle"
-          aria-label="${t(L, this._parent ? "lock" : "unlock")}"><ha-icon icon="${
-            this._parent ? "mdi:lock-open-variant" : "mdi:lock"
-          }"></ha-icon></button></header>
-      <main>${body}</main>
-      ${this._renderForm()}
-      ${this._renderSheet()}
-      ${this._renderDialog()}
-      ${this._pin !== null ? this._renderPinPad() : ""}
-      ${this._cleanHands ? this._renderCleanHands() : ""}
-      ${this._toast ? `<div class="toast ${this._toast.kind}">${escapeHtml(this._toast.text)}</div>` : ""}`;
-    if (this._form) this._fillForm();
+    this._els.title.innerHTML = String(title);
+    this._els.tabs.innerHTML = String(this._renderTabs());
+    this._els.lock.classList.toggle("open", this._parent);
+    this._els.lock.setAttribute("aria-label", t(L, this._parent ? "lock" : "unlock"));
+    this._els.lock.innerHTML = String(icon(this._parent ? "mdi:lock-open-variant" : "mdi:lock"));
+    this._renderMain(String(body), background);
+    this._syncDialogs();
+    this._renderToast();
     this._syncMenuButton();
   }
 
+  /** Replace <main>, keeping keyboard focus (and never yanking an open select/input). */
+  _renderMain(markup, background) {
+    const main = this._els.main;
+    const active = this.shadowRoot.activeElement;
+    const inMain = active && main.contains(active);
+    if (background && inMain && ["SELECT", "INPUT"].includes(active.tagName)) return;
+    const key = inMain ? focusKey(active) : null;
+    main.innerHTML = markup;
+    if (key) main.querySelector(key)?.focus();
+  }
+
+  _renderToast() {
+    const el = this._els?.toast;
+    if (!el) return;
+    el.hidden = !this._toast;
+    el.className = `toast ${this._toast?.kind ?? ""}`;
+    el.textContent = this._toast?.text ?? "";
+  }
+
   _renderTabs() {
-    if (!this._parent) return "";
+    if (!this._parent) return html``;
     const L = this._lang;
     const due = (this._payouts?.items ?? []).some((i) => i.is_payout_day && !i.paid);
-    const tab = (id, label) =>
-      `<button class="pill ${this._tab === id && this._view.name === "overview" ? "active" : ""}"
-        data-action="tab" data-tab="${id}">${label}</button>`;
-    return `<nav class="tabs">${tab("today", t(L, "tab_today"))}${tab(
+    const tab = (id, label, extra = "") => {
+      const active = this._tab === id && this._view.name === "overview";
+      return html`<button class="pill ${active ? "active" : ""}" data-action="tab" data-tab="${id}"
+        aria-current="${active ? "page" : "false"}">${label}${extra}</button>`;
+    };
+    return html`${tab("today", t(L, "tab_today"))}${tab(
       "payouts",
-      `${t(L, "tab_payouts")}${due ? '<span class="dot" aria-label="!"></span>' : ""}`,
-    )}${tab("admin", t(L, "tab_admin"))}${tab("log", t(L, "tab_log"))}</nav>`;
+      t(L, "tab_payouts"),
+      due ? html`<span class="dot" role="img" aria-label="!"></span>` : "",
+    )}${tab("admin", t(L, "tab_admin"))}${tab("log", t(L, "tab_log"))}`;
   }
 
   _dayHeader() {
     const L = this._lang;
     const { today, day } = this._state;
     const nav = dayNav(today, day);
-    const arrow = (target, label, text) =>
-      `<button class="nav" data-action="day" data-day="${target ?? ""}" aria-label="${t(L, label)}"
-        ${target ? "" : "disabled"}>${text}</button>`;
-    const back = day !== today ? `<button class="pill" data-action="day" data-day="">${t(L, "today")}</button>` : "";
-    return `${arrow(nav.prev, "prev_day", "‹")}<span class="${day === today ? "" : "other-day"}">${escapeHtml(
-      formatDay(day, L),
-    )}</span>${arrow(nav.next, "next_day", "›")}${back}`;
+    const arrow = (target, label, name) =>
+      html`<button class="icon-btn" data-action="day" data-day="${target ?? ""}" aria-label="${t(L, label)}"
+        ${target ? "" : raw("disabled")}>${icon(name)}</button>`;
+    const back = day !== today ? html`<button class="pill" data-action="day" data-day="">${t(L, "today")}</button>` : "";
+    return html`${arrow(nav.prev, "prev_day", "mdi:chevron-left")}<span class="text ${day === today ? "" : "other-day"}"
+        >${formatDay(day, L)}</span
+      >${arrow(nav.next, "next_day", "mdi:chevron-right")}${back}`;
+  }
+
+  _kidName(id) {
+    return this._state.kids.find((k) => k.id === id)?.name ?? (this._admin?.kids.find((k) => k.id === id)?.name ?? "");
+  }
+
+  _loading() {
+    return html`<p class="empty">${t(this._lang, "loading")}</p>`;
   }
 
   _renderOverview() {
     const s = this._state;
     const L = this._lang;
-    if (!s.kids.length) return `<p class="empty">${t(L, "no_kids")}</p>`;
-    const closed = s.week_status === "closed" ? `<p class="warn">${t(L, "week_closed")}</p>` : "";
-    const cols = s.kids
-      .map((kid) => {
-        const data = s.board[String(kid.id)] ?? { chores: [], bonus: [], balances: {} };
-        const groups = groupBySlot(data.chores)
-          .map(
-            (g) => `<div class="slot">${t(L, g.slot)}</div>${g.items.map((i) => this._choreRow(i)).join("")}`,
-          )
-          .join("");
-        const bonus = data.bonus.length
-          ? `<div class="bonus"><div class="slot">${t(L, "bonus")}</div>${data.bonus
-              .map((i) => this._choreRow(i))
-              .join("")}</div>`
-          : "";
-        const empty = !data.chores.length && !data.bonus.length;
-        const adjust = this._parent
-          ? `<button class="small-btn" data-action="adjust" data-kid="${kid.id}">±</button>`
-          : "";
-        return `<section class="kid">
-          <div class="kid-head"><button class="kid-name" data-action="kid" data-kid="${kid.id}">${escapeHtml(
-            kid.name,
-          )}</button>${adjust}</div>
-          ${this._meters(data.balances)}
-          ${groups}${bonus}
-          ${empty ? `<p class="empty">${t(L, "no_chores")}</p>` : ""}
-        </section>`;
-      })
-      .join("");
-    return `${closed}<div class="columns" style="grid-template-columns: repeat(${s.kids.length}, minmax(0, 1fr))">${cols}</div>`;
+    if (!s.kids.length) return html`<p class="empty">${t(L, "no_kids")}</p>`;
+    const closed = s.week_status === "closed" ? html`<p class="warn">${t(L, "week_closed")}</p>` : "";
+    const cols = s.kids.map((kid) => {
+      const data = s.board[String(kid.id)] ?? { chores: [], bonus: [], balances: {} };
+      const groups = groupBySlot(data.chores).map(
+        (g) => html`<div class="slot">${t(L, g.slot)}</div>${g.items.map((i) => this._choreRow(i))}`,
+      );
+      const bonus = data.bonus.length
+        ? html`<div class="bonus"><div class="slot">${t(L, "bonus")}</div>${data.bonus.map((i) => this._choreRow(i))}</div>`
+        : "";
+      const empty = !data.chores.length && !data.bonus.length;
+      const adjust = this._parent
+        ? html`<button class="icon-btn" data-action="adjust" data-kid="${kid.id}"
+            aria-label="${t(L, "adjust_for", { name: kid.name })}">${icon("mdi:plus-minus-variant")}</button>`
+        : "";
+      return html`<section class="kid">
+        <div class="kid-head">
+          <button class="kid-name" data-action="kid" data-kid="${kid.id}" aria-label="${t(L, "open_week_of", { name: kid.name })}"
+            >${kid.name}${icon("mdi:chevron-right")}</button
+          >${adjust}
+        </div>
+        ${this._meters(data.balances)} ${groups}${bonus} ${empty ? html`<p class="empty">${t(L, "no_chores")}</p>` : ""}
+      </section>`;
+    });
+    return html`${closed}<div class="columns" style="--cols: ${s.kids.length}">${cols}</div>`;
   }
 
   _choreRow(inst) {
     // Kids can tick or untick any day of the open week (D8); future days are a preview.
-    // Parents also get a ⋯ menu and see ⚠ on ticks made after the chore's day.
+    // Parents also get a ⋯ menu and see a warning icon on ticks made after the chore's day.
+    const L = this._lang;
     const open = this._state.week_status === "open";
     const tappable = open && kidTap(inst, this._state.today) !== null;
     const late =
-      this._parent && inst.late ? `<span class="late" title="${t(this._lang, "late_hint")}">⚠</span>` : "";
+      this._parent && inst.late
+        ? html`<span class="late" title="${t(L, "late_hint")}" role="img" aria-label="${t(L, "late_hint")}"
+            >${icon("mdi:alert")}</span
+          >`
+        : "";
     const more =
       this._parent && parentActions(inst, this._state.today).length
-        ? `<button class="more" data-action="more" data-id="${inst.id}">⋯</button>`
+        ? html`<button class="icon-btn" data-action="more" data-id="${inst.id}"
+            aria-label="${t(L, "more_actions", { name: inst.name })}">${icon("mdi:dots-vertical")}</button>`
         : "";
-    return `<div class="row"><button class="chore ${inst.status}" data-action="toggle" data-id="${inst.id}"
-      ${tappable ? "" : "disabled"}><span class="box">${inst.status === "pending" ? "" : cellSymbol(inst.status)}</span>
-      <span>${escapeHtml(inst.name)}</span>${late}</button>${more}</div>`;
+    const box = inst.status === "pending" ? "" : cellSymbol(inst.status);
+    return html`<div class="row">
+      <button class="chore ${inst.status}" data-action="toggle" data-id="${inst.id}" role="checkbox"
+        aria-checked="${inst.status === "done" ? "true" : "false"}" ${tappable ? "" : raw("disabled")}>
+        <span class="box" aria-hidden="true">${box}</span><span>${inst.name}</span>${late}
+      </button>${more}
+    </div>`;
   }
 
   _meters(balances) {
-    return this._state.currencies
-      .map((c) => {
-        const b = progress(balances?.[String(c.id)]);
-        const lost =
-          c.can_be_lost && b.lost ? `<span class="lost">${t(this._lang, "lost", { n: b.lost })}</span>` : "";
-        const bar = b.pct === null ? "" : `<div class="bar"><div class="fill" style="width:${b.pct}%"></div></div>`;
-        return `<div class="meter">
-          <div class="meter-label"><ha-icon icon="${escapeHtml(c.icon || "mdi:star")}"></ha-icon>
-            ${escapeHtml(c.name)} ${lost}<span class="amount">${escapeHtml(amountLabel(b, c.unit))}</span></div>
-          ${bar}
-        </div>`;
-      })
-      .join("");
+    return this._state.currencies.map((c) => {
+      const b = progress(balances?.[String(c.id)]);
+      const lost = c.can_be_lost && b.lost ? html`<span class="lost">${t(this._lang, "lost", { n: b.lost })}</span>` : "";
+      const bar =
+        b.pct === null
+          ? ""
+          : html`<div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="${b.cap}" aria-valuenow="${b.total}"
+              aria-label="${c.name}"><div class="fill" style="width:${b.pct}%"></div></div>`;
+      return html`<div class="meter">
+        <div class="meter-label">${icon(c.icon || "mdi:star")} ${c.name} ${lost}<span class="amount"
+            >${amountLabel(b, c.unit)}</span
+          ></div>
+        ${bar}
+      </div>`;
+    });
   }
 
   _renderWeek() {
     const L = this._lang;
     const w = this._week;
-    if (!w) return `<p class="empty">${t(L, "loading")}</p>`;
+    if (!w) return this._loading();
     const today = this._state.today;
-    // Today's cells are tappable for kids (D34); match them to today's instances by chore.
-    // In parent mode, past cells open the ⋯ menu instead.
+    // Today's cells come from the day's board; past cells from the grid (D34, D8).
     const kidBoard = this._state.board[String(this._view.kidId)] ?? { chores: [], bonus: [] };
     const todayByChore = new Map([...kidBoard.chores, ...kidBoard.bonus].map((i) => [i.chore_id, i]));
-    const head = w.days
-      .map((d) => `<th class="${d === today ? "today" : ""}">${weekdayLetter(d, L)}</th>`)
-      .join("");
-    const rows = w.rows
-      .map((r) => {
-        const cells = w.days
-          .map((d) => {
-            const status = r.cells[d];
-            const cls = `cell ${status ?? ""} ${d === today ? "today" : ""}`;
-            const id = r.ids?.[d];
-            const open = w.week_status === "open";
-            const late = this._parent && r.late?.[d] ? `<sup class="late">⚠</sup>` : "";
-            const inst = d === today ? todayByChore.get(r.chore_id) : null;
-            if (inst && open && kidTap(inst, today)) {
-              return `<td class="${cls}"><button data-action="toggle" data-confirm="1" data-id="${inst.id}">${cellSymbol(
-                inst.status,
-              )}${late}</button></td>`;
-            }
-            if (id && d < today && open) {
-              // Parents get the ⋯ menu; kids may fix a forgotten tick (D8).
-              const past = { id, day: d, status, type: r.type };
-              if (this._parent) {
-                return `<td class="${cls}"><button data-action="more" data-id="${id}" data-day="${d}">${cellSymbol(
-                  status,
-                )}${late}</button></td>`;
-              }
-              if (kidTap(past, today)) {
-                return `<td class="${cls}"><button data-action="toggle" data-id="${id}" data-day="${d}">${cellSymbol(
-                  status,
-                )}</button></td>`;
-              }
-            }
-            return `<td class="${cls}">${status ? cellSymbol(status) : ""}${late}</td>`;
-          })
-          .join("");
-        const label = r.type === "bonus" ? `${t(L, "bonus")}: ${escapeHtml(r.name)}` : escapeHtml(r.name);
-        return `<tr class="${r.type === "bonus" ? "bonus-row" : ""}"><td>${label}</td>${cells}</tr>`;
-      })
-      .join("");
-    return `<div class="week-meters">${this._meters(w.balances)}</div>
-      <table class="week"><thead><tr><th></th>${head}</tr></thead><tbody>${rows}</tbody></table>`;
+    const open = w.week_status === "open";
+    const head = w.days.map(
+      (d) => html`<th class="${d === today ? "today" : ""}" scope="col" aria-label="${shortDay(d, L)}">${weekdayLetter(d, L)}</th>`,
+    );
+    const rows = w.rows.map((r) => {
+      const cells = w.days.map((d) => {
+        const status = r.cells[d];
+        const cls = `cell ${status ?? ""} ${d === today ? "today" : ""}`;
+        const label = t(L, "cell_label", { name: r.name, day: shortDay(d, L), status: t(L, `st_${status ?? "none"}`) });
+        const late = this._parent && r.late?.[d] ? html`<span class="late">${icon("mdi:alert")}</span>` : "";
+        const todays = d === today ? todayByChore.get(r.chore_id) : null;
+        const id = todays?.id ?? r.ids?.[d];
+        const inst = todays ?? (id ? { id, day: d, status, type: r.type } : null);
+        let action = null;
+        if (inst && open && d === today && kidTap(inst, today)) action = html`data-action="toggle" data-confirm="1"`;
+        else if (inst && open && d < today && this._parent) action = html`data-action="more"`;
+        else if (inst && open && d < today && kidTap(inst, today)) action = html`data-action="toggle"`;
+        const symbol = cellSymbol(inst?.status ?? status);
+        if (action) {
+          return html`<td class="${cls}"><button ${action} data-id="${id}" data-day="${d}" aria-label="${label}">
+              ${symbol}${late}</button></td>`;
+        }
+        return html`<td class="${cls}" aria-label="${label}">${status ? symbol : ""}${late}</td>`;
+      });
+      const name = r.type === "bonus" ? `${t(L, "bonus")}: ${r.name}` : r.name;
+      return html`<tr class="${r.type === "bonus" ? "bonus-row" : ""}"><th scope="row">${name}</th>${cells}</tr>`;
+    });
+    return html`<div class="week-meters">${this._meters(w.balances)}</div>
+      <table class="week"><thead><tr><td></td>${head}</tr></thead><tbody>${rows}</tbody></table>`;
   }
 
   _renderPayouts() {
     const L = this._lang;
     const p = this._payouts;
-    if (!p) return `<p class="empty">${t(L, "loading")}</p>`;
+    if (!p) return this._loading();
     const s = this._state;
-    const kidName = (id) => escapeHtml(s.kids.find((k) => k.id === id)?.name ?? `#${id}`);
     const currentWeek = mondayOf(s.today);
     const prevWeek = addDays(p.week, -7);
     const nextWeek = p.week < currentWeek ? addDays(p.week, 7) : null;
-    const weekNav = `<div class="card"><h2>
-      <button class="nav" data-action="payout-week" data-week="${prevWeek}">‹</button>
+    const weekButton =
+      p.week !== currentWeek
+        ? ""
+        : p.week_status === "closed"
+          ? html`<button class="small-btn" data-action="reopen-week">${t(L, "reopen_week")}</button>`
+          : html`<button class="small-btn" data-action="close-week">${t(L, "close_week")}</button>`;
+    const weekNav = html`<div class="card"><h2>
+      <button class="icon-btn" data-action="payout-week" data-week="${prevWeek}" aria-label="${t(L, "prev_week")}"
+        >${icon("mdi:chevron-left")}</button>
       <span class="grow">${t(L, "week", { n: isoWeek(p.week) })}${
-        p.week_status === "closed" ? ` · <span class="muted">${t(L, "week_closed")}</span>` : ""
+        p.week_status === "closed" ? html` · <span class="muted">${t(L, "week_closed")}</span>` : ""
       }</span>
-      ${nextWeek ? `<button class="nav" data-action="payout-week" data-week="${nextWeek === currentWeek ? "" : nextWeek}">›</button>` : ""}
       ${
-        p.week === currentWeek
-          ? p.week_status === "closed"
-            ? `<button class="small-btn" data-action="reopen-week">${t(L, "reopen_week")}</button>`
-            : `<button class="small-btn" data-action="close-week">${t(L, "close_week")}</button>`
+        nextWeek
+          ? html`<button class="icon-btn" data-action="payout-week" data-week="${nextWeek === currentWeek ? "" : nextWeek}"
+              aria-label="${t(L, "next_week")}">${icon("mdi:chevron-right")}</button>`
           : ""
-      }</h2></div>`;
-    const cards = s.currencies
-      .map((c) => {
-        const items = p.items.filter((i) => i.currency_id === c.id);
-        if (!items.length) return "";
-        const payoutDay = items[0].payout_day;
-        const today = items[0].is_payout_day ? ` · <b>${t(L, "payout_today")}</b>` : "";
-        const rows = items
-          .map((i) => {
-            const paid = i.paid
-              ? `${t(L, "paid", { amount: `${i.paid.amount} ${escapeHtml(c.unit)}` })}${
-                  i.after_payout
-                    ? ` <span class="warn">${t(L, "after_payout", { amount: `${i.after_payout} ${escapeHtml(c.unit)}` })}</span>`
-                    : ""
-                }`
-              : "";
-            const btn = i.paid
-              ? `<button class="small-btn" data-action="pay" data-kid="${i.kid_id}" data-currency="${c.id}" data-paid="0">${t(L, "undo")}</button>`
-              : `<button class="primary-btn" data-action="pay" data-kid="${i.kid_id}" data-currency="${c.id}" data-paid="1">${t(L, "mark_paid")}</button>`;
-            const details = `<button class="small-btn" data-action="details" data-kid="${i.kid_id}">${t(
-              L,
-              "details",
-            )}</button>`;
-            return `<tr><td>${kidName(i.kid_id)}</td><td class="num">${i.amount_due} ${escapeHtml(c.unit)}</td>
-              <td>${paid}</td><td class="actions">${details} ${btn}</td></tr>`;
-          })
-          .join("");
-        return `<div class="card"><h2><ha-icon icon="${escapeHtml(c.icon || "mdi:star")}"></ha-icon>
-          <span class="grow">${escapeHtml(c.name)}</span>
-          <span class="muted">${t(L, "payout_day", { day: escapeHtml(formatDay(payoutDay, L)) })}${today}</span></h2>
-          <table class="list"><tr class="muted"><th></th><th class="num">${t(L, "amount_due")}</th><th></th><th></th></tr>${rows}</table></div>`;
-      })
-      .join("");
+      }
+      ${weekButton}</h2></div>`;
+    const cards = s.currencies.map((c) => {
+      const items = p.items.filter((i) => i.currency_id === c.id);
+      if (!items.length) return "";
+      const amount = (n) => `${n} ${c.unit}`;
+      const rows = items.map((i) => {
+        const paid = i.paid
+          ? html`${t(L, "paid", { amount: amount(i.paid.amount) })}${
+              i.after_payout ? html` <span class="warn">${t(L, "after_payout", { amount: amount(i.after_payout) })}</span>` : ""
+            }`
+          : "";
+        const pay = html`<button class="${i.paid ? "small-btn" : "primary-btn"}" data-action="pay" data-kid="${i.kid_id}"
+          data-currency="${c.id}" data-paid="${i.paid ? "0" : "1"}">${t(L, i.paid ? "undo" : "mark_paid")}</button>`;
+        return html`<tr><td>${this._kidName(i.kid_id)}</td><td class="num">${amount(i.amount_due)}</td><td>${paid}</td>
+          <td class="actions"><button class="small-btn" data-action="details" data-kid="${i.kid_id}">${t(L, "details")}</button>
+          ${pay}</td></tr>`;
+      });
+      const today = items[0].is_payout_day ? html` · <b>${t(L, "payout_today")}</b>` : "";
+      return html`<div class="card"><h2>${icon(c.icon || "mdi:star")}<span class="grow">${c.name}</span>
+        <span class="muted">${t(L, "payout_day", { day: formatDay(items[0].payout_day, L) })}${today}</span></h2>
+        <table class="list"><tr class="muted"><th></th><th class="num">${t(L, "amount_due")}</th><th></th><th></th></tr>${rows}</table></div>`;
+    });
     const adjustments = p.adjustments.length
-      ? `<div class="card"><h2>${t(L, "adjustments")}</h2><table class="list">${p.adjustments
-          .map((a) => {
-            const cur = s.currencies.find((c) => c.id === a.currency_id);
-            const sign = a.amount > 0 ? "+" : "";
-            return `<tr><td>${kidName(a.kid_id)}</td><td class="num">${sign}${a.amount} ${escapeHtml(cur?.unit ?? "")}</td>
-              <td>${escapeHtml(a.note)}</td><td class="muted">${escapeHtml(formatTimestamp(a.created_at, L))}</td></tr>`;
-          })
-          .join("")}</table></div>`
+      ? html`<div class="card"><h2>${t(L, "adjustments")}</h2><table class="list">${p.adjustments.map((a) => {
+          const cur = s.currencies.find((c) => c.id === a.currency_id);
+          return html`<tr><td>${this._kidName(a.kid_id)}</td><td class="num">${a.amount > 0 ? "+" : ""}${a.amount} ${
+            cur?.unit ?? ""
+          }</td><td>${a.note}</td><td class="muted">${formatTimestamp(a.created_at, L)}</td></tr>`;
+        })}</table></div>`
       : "";
-    return weekNav + cards + adjustments;
+    return html`${weekNav}${cards}${adjustments}`;
   }
 
   _renderAdmin() {
     const L = this._lang;
     const a = this._admin;
-    if (!a) return `<p class="empty">${t(L, "loading")}</p>`;
-    const inactive = (x) => (x.active ? "" : ` <span class="muted">(${t(L, "inactive")})</span>`);
-    const section = (title, action, rows) =>
-      `<div class="card"><h2><span class="grow">${title}</span>
+    if (!a) return this._loading();
+    const inactive = (x) => (x.active ? "" : html` <span class="muted">(${t(L, "inactive")})</span>`);
+    const section = (title, action, rows) => html`<div class="card"><h2><span class="grow">${title}</span>
         <button class="small-btn" data-action="${action}">+ ${t(L, "new")}</button></h2>
         <table class="list">${rows}</table></div>`;
     const editBtn = (action, id) =>
-      `<td class="actions"><button class="small-btn" data-action="${action}" data-id="${id}">${t(L, "edit")}</button></td>`;
-    const kidName = (id) => escapeHtml(a.kids.find((k) => k.id === id)?.name ?? "?");
-    const kids = a.kids
-      .map((k) => `<tr><td>${escapeHtml(k.name)}${inactive(k)}</td>${editBtn("edit-kid", k.id)}</tr>`)
-      .join("");
-    const chores = a.chores
-      .map((c) => {
-        const days = c.weekdays.length
-          ? c.weekdays.map((d) => weekdayName(d, L).slice(0, 3)).join(" ")
-          : t(L, "every_day");
-        const values = Object.entries(c.values)
-          .map(([cid, v]) => `${v} ${escapeHtml(a.currencies.find((x) => x.id === Number(cid))?.unit ?? "")}`)
-          .join(", ");
-        return `<tr><td>${escapeHtml(c.name)}${inactive(c)}<br><span class="muted">${t(L, c.chore_type)} · ${t(
-          L,
-          c.slot,
-        )} · ${days} · ${c.kid_ids.map(kidName).join(", ")}</span></td><td class="num">${values}</td>${editBtn(
-          "edit-chore",
-          c.id,
-        )}</tr>`;
-      })
-      .join("");
-    const currencies = a.currencies
-      .map(
-        (c) => `<tr><td>${escapeHtml(c.name)} (${escapeHtml(c.unit)})${inactive(c)}<br><span class="muted">${t(
-          L,
-          `cap_${c.cap_mode}`,
-        )} · ${weekdayName(c.payout_weekday, L)}</span></td>${editBtn("edit-currency", c.id)}</tr>`,
-      )
-      .join("");
-    return `<div class="columns" style="grid-template-columns: 1fr 1fr">
+      html`<td class="actions"><button class="small-btn" data-action="${action}" data-id="${id}">${t(L, "edit")}</button></td>`;
+    const kids = a.kids.map((k) => html`<tr><td>${k.name}${inactive(k)}</td>${editBtn("edit-kid", k.id)}</tr>`);
+    const chores = a.chores.map((c) => {
+      const days = c.weekdays.length ? c.weekdays.map((d) => weekdayName(d, L).slice(0, 3)).join(" ") : t(L, "every_day");
+      const values = Object.entries(c.values)
+        .map(([cid, v]) => `${v} ${a.currencies.find((x) => x.id === Number(cid))?.unit ?? ""}`)
+        .join(", ");
+      const who = c.kid_ids.map((id) => this._kidName(id)).join(", ");
+      return html`<tr><td>${c.name}${inactive(c)}<br /><span class="muted"
+          >${t(L, c.chore_type)} · ${t(L, c.slot)} · ${days} · ${who}</span
+        ></td><td class="num">${values}</td>${editBtn("edit-chore", c.id)}</tr>`;
+    });
+    const currencies = a.currencies.map(
+      (c) => html`<tr><td>${c.name} (${c.unit})${inactive(c)}<br /><span class="muted"
+          >${t(L, `cap_${c.cap_mode}`)} · ${weekdayName(c.payout_weekday, L)}</span
+        ></td>${editBtn("edit-currency", c.id)}</tr>`,
+    );
+    return html`<div class="columns" style="--cols: 2">
       <div>${section(t(L, "kids"), "edit-kid", kids)}${section(t(L, "currencies"), "edit-currency", currencies)}
         <div class="card"><h2><span class="grow">${t(L, "settings")}</span>
           <button class="small-btn" data-action="edit-settings">${t(L, "edit")}</button></h2></div></div>
@@ -1821,166 +1920,217 @@ export class ChoresPanel extends Base {
     const L = this._lang;
     const s = this._state;
     const f = this._logFilter;
-    const kidName = (id) => escapeHtml(s.kids.find((k) => k.id === id)?.name ?? "");
-    const kidOpts = [`<option value="">${t(L, "log_all_kids")}</option>`]
-      .concat(
-        s.kids.map(
-          (k) => `<option value="${k.id}" ${f.kidId === k.id ? "selected" : ""}>${escapeHtml(k.name)}</option>`,
-        ),
-      )
-      .join("");
-    const groupOpts = Object.keys(LOG_GROUPS)
-      .map((g) => `<option value="${g}" ${f.group === g ? "selected" : ""}>${t(L, `g_${g}`)}</option>`)
-      .join("");
-    const weekLabel = f.week ? t(L, "week", { n: isoWeek(f.week) }) : t(L, "log_all_weeks");
+    const kidOpts = [html`<option value="">${t(L, "log_all_kids")}</option>`].concat(
+      s.kids.map((k) => html`<option value="${k.id}" ${f.kidId === k.id ? raw("selected") : ""}>${k.name}</option>`),
+    );
+    const groupOpts = Object.keys(LOG_GROUPS).map(
+      (g) => html`<option value="${g}" ${f.group === g ? raw("selected") : ""}>${t(L, `g_${g}`)}</option>`,
+    );
     const current = mondayOf(s.today);
     const prev = addDays(f.week ?? addDays(current, 7), -7);
     const next = f.week && f.week < current ? addDays(f.week, 7) : null;
-    const filters = `<div class="card filters">
-      <select data-filter="kid">${kidOpts}</select>
-      <select data-filter="group">${groupOpts}</select>
-      <label class="check"><input type="checkbox" data-filter="late" ${f.late ? "checked" : ""}> ${t(
+    const filters = html`<div class="card filters">
+      <select data-filter="kid" aria-label="${t(L, "kids")}">${kidOpts}</select>
+      <select data-filter="group" aria-label="${t(L, "log_event")}">${groupOpts}</select>
+      <label class="check"><input type="checkbox" data-filter="late" ${f.late ? raw("checked") : ""} /> ${t(
         L,
         "log_late_only",
       )}</label>
       <span class="grow"></span>
-      <button class="nav" data-action="log-week" data-week="${prev}">‹</button>
-      <span>${weekLabel}</span>
-      <button class="nav" data-action="log-week" data-week="${next ?? ""}" ${f.week ? "" : "disabled"}>›</button>
+      <button class="icon-btn" data-action="log-week" data-week="${prev}" aria-label="${t(L, "prev_week")}">
+        ${icon("mdi:chevron-left")}</button>
+      <span>${f.week ? t(L, "week", { n: isoWeek(f.week) }) : t(L, "log_all_weeks")}</span>
+      <button class="icon-btn" data-action="log-week" data-week="${next ?? ""}" aria-label="${t(L, "next_week")}"
+        ${f.week ? "" : raw("disabled")}>${icon("mdi:chevron-right")}</button>
     </div>`;
-    if (!this._log) return `${filters}<p class="empty">${t(L, "loading")}</p>`;
-    if (!this._log.length) return `${filters}<p class="empty">${t(L, "log_empty")}</p>`;
-    const rows = this._log
-      .map((e) => {
-        let after = null;
-        try {
-          after = e.after ? JSON.parse(e.after) : null;
-        } catch {
-          after = null;
+    if (!this._log) return html`${filters}${this._loading()}`;
+    if (!this._log.length) return html`${filters}<p class="empty">${t(L, "log_empty")}</p>`;
+    const rows = this._log.map((e) => {
+      let after = null;
+      try {
+        after = e.after ? JSON.parse(e.after) : null;
+      } catch {
+        after = null;
+      }
+      let what = "";
+      if (e.action === "check" || e.action === "uncheck") what = after?.chore ?? "";
+      else if (after?.chore) what = `${after.chore} → ${t(L, `act_${after.status}`)}`;
+      else if (after?.name) what = after.name;
+      else if (after?.amount !== undefined && after?.amount !== null) what = String(after.amount);
+      const day = e.day && e.entity === "instance" ? shortDay(e.day, L) : "";
+      const late = e.late
+        ? html`<span class="late" role="img" aria-label="${t(L, "late_hint")}">${icon("mdi:alert")}</span>`
+        : "";
+      return html`<tr class="${e.late ? "late-row" : ""}"><td class="muted">${formatTimestamp(e.ts, L)}</td>
+        <td>${this._kidName(e.kid_id)}</td><td>${t(L, `a_${e.action}`)}</td><td>${what}</td><td>${day} ${late}</td>
+        <td class="muted">${e.note ?? ""}</td></tr>`;
+    });
+    const head = html`<tr class="muted"><th>${t(L, "log_when")}</th><th>${t(L, "kids")}</th><th>${t(L, "log_event")}</th>
+      <th>${t(L, "log_what")}</th><th>${t(L, "log_day")}</th><th>${t(L, "note")}</th></tr>`;
+    return html`${filters}<div class="card"><table class="list">${head}${rows}</table></div>`;
+  }
+
+  // --- dialogs (native <dialog>: focus trap, Escape, inert background) -------------
+
+  _dialogState(kind) {
+    return {
+      form: this._form,
+      sheet: this._sheet,
+      confirm: this._dialog,
+      pin: this._pin !== null ? this._pin : null,
+      clean: this._cleanHands && !this._form && this._pin === null ? true : null,
+    }[kind];
+  }
+
+  _syncDialogs() {
+    for (const kind of DIALOG_KINDS) {
+      const state = this._dialogState(kind);
+      let el = this._dialogEls[kind];
+      if (state === null || state === undefined || state === false) {
+        if (el) {
+          el.close?.();
+          el.remove();
+          delete this._dialogEls[kind];
         }
-        let what = "";
-        if (after?.chore) what = `${after.chore} → ${t(L, `act_${after.status}`)}`;
-        else if (after?.name) what = after.name;
-        else if (after?.amount !== undefined && after?.amount !== null) what = String(after.amount);
-        if (e.action === "check" || e.action === "uncheck") what = after?.chore ?? "";
-        const day = e.day && e.entity === "instance" ? shortDay(e.day, L) : "";
-        const late = e.late ? `<span class="late" title="${t(L, "late_hint")}">⚠</span>` : "";
-        return `<tr class="${e.late ? "late-row" : ""}"><td class="muted">${escapeHtml(formatTimestamp(e.ts, L))}</td>
-          <td>${kidName(e.kid_id)}</td><td>${escapeHtml(t(L, `a_${e.action}`))}</td>
-          <td>${escapeHtml(what)}</td><td>${escapeHtml(day)} ${late}</td>
-          <td class="muted">${escapeHtml(e.note ?? "")}</td></tr>`;
-      })
-      .join("");
-    const head = `<tr class="muted"><th>${t(L, "log_when")}</th><th>${t(L, "kids")}</th><th>${t(
-      L,
-      "log_event",
-    )}</th><th>${t(L, "log_what")}</th><th>${t(L, "log_day")}</th><th>${t(L, "note")}</th></tr>`;
-    return `${filters}<div class="card"><table class="list">${head}${rows}</table></div>`;
+        continue;
+      }
+      const fresh = !el;
+      if (fresh) {
+        el = document.createElement("dialog");
+        el.className = `dialog ${kind === "clean" ? "clean-hands" : ""}`;
+        el.setAttribute("aria-labelledby", `dlg-${kind}-title`);
+        el.addEventListener("cancel", (ev) => {
+          ev.preventDefault(); // Escape: close through our own state
+          this._dismiss(kind);
+        });
+        if (kind === "pin") el.addEventListener("keydown", (ev) => this._pinKey(ev));
+        if (kind === "form") {
+          el.addEventListener("submit", (ev) => ev.preventDefault());
+          el.addEventListener("keydown", (ev) => {
+            if (ev.key === "Enter" && ev.target.tagName === "INPUT" && ev.target.type !== "checkbox") {
+              ev.preventDefault();
+              this._saveForm();
+            }
+          });
+        }
+        this._els.dialogs.append(el);
+        this._dialogEls[kind] = el;
+      }
+      // Forms are rendered once (typed input must survive); the others are cheap to redraw.
+      if (fresh || kind !== "form") el.innerHTML = String(this._renderDialog(kind));
+      if (fresh && kind === "form") this._fillForm();
+      if (!el.open) {
+        if (typeof el.showModal === "function") el.showModal();
+        else el.setAttribute("open", "");
+      }
+    }
+  }
+
+  _dismiss(kind) {
+    if (kind === "form") this._form = null;
+    if (kind === "sheet") this._sheet = null;
+    if (kind === "confirm") this._dialog = null;
+    if (kind === "pin") this._pin = null;
+    if (kind === "clean") this._cleanHands = false;
+    this._render();
+  }
+
+  _renderDialog(kind) {
+    const L = this._lang;
+    const title = (text) => html`<h3 id="dlg-${kind}-title">${text}</h3>`;
+    if (kind === "confirm") {
+      return html`${title(this._dialog.text)}
+        <div class="actions">
+          <button data-action="dialog-cancel">${t(L, "cancel")}</button>
+          <button class="primary" data-action="dialog-yes" autofocus>${t(L, "yes")}</button>
+        </div>`;
+    }
+    if (kind === "sheet") {
+      return html`${title(this._sheet.title)}
+        <div class="sheet">
+          ${this._sheet.items.map((item, i) => html`<button data-action="sheet-item" data-index="${i}">${item.label}</button>`)}
+          <button data-action="sheet-close">${t(L, "cancel")}</button>
+        </div>`;
+    }
+    if (kind === "pin") {
+      const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9"].map(
+        (d) => html`<button data-action="pin-digit" data-digit="${d}">${d}</button>`,
+      );
+      return html`<div class="pinpad">${title(t(L, "enter_pin"))}
+        <div class="pin-dots" aria-live="polite">${"●".repeat(this._pin.length) || raw("&nbsp;")}</div>
+        <div class="keys">${keys}
+          <button data-action="pin-back" aria-label="${t(L, "backspace")}">${icon("mdi:backspace-outline")}</button>
+          <button data-action="pin-digit" data-digit="0">0</button>
+          <button data-action="pin-ok" autofocus>OK</button>
+        </div>
+        <div class="actions"><button data-action="pin-cancel">${t(L, "cancel")}</button></div></div>`;
+    }
+    if (kind === "clean") {
+      const text = this._state?.settings?.clean_hands_text || t(L, "clean_hands");
+      return html`<button data-action="clean-hands" autofocus>
+        ${icon("mdi:hand-wash")}<span id="dlg-clean-title">${text}</span><small>${t(L, "tap_to_continue")}</small>
+      </button>`;
+    }
+    return this._renderForm();
   }
 
   _renderForm() {
-    if (!this._form) return "";
     const L = this._lang;
     const f = this._form;
-    const fields = f.fields
-      .map((field) => {
-        const id = `f-${field.key}`;
-        if (field.type === "bool") {
-          return `<div class="field check"><input type="checkbox" id="${id}" name="${field.key}">
-            <label for="${id}">${escapeHtml(field.label)}</label></div>`;
-        }
-        if (field.type === "select") {
-          const opts = field.options
-            .map(([v, label]) => `<option value="${escapeHtml(v)}">${escapeHtml(label)}</option>`)
-            .join("");
-          return `<div class="field"><label for="${id}">${escapeHtml(field.label)}</label>
-            <select id="${id}" name="${field.key}">${opts}</select></div>`;
-        }
-        if (field.type === "multi") {
-          const chips = field.options
-            .map(
-              ([v, label]) =>
-                `<label><input type="checkbox" name="${field.key}" value="${escapeHtml(v)}">${escapeHtml(label)}</label>`,
-            )
-            .join("");
-          return `<div class="field"><label>${escapeHtml(field.label)}</label><div class="chips">${chips}</div></div>`;
-        }
-        const type = field.type === "number" ? "number" : "text";
-        return `<div class="field"><label for="${id}">${escapeHtml(field.label)}</label>
-          <input type="${type}" id="${id}" name="${field.key}" ${type === "number" ? 'inputmode="numeric"' : ""}></div>`;
-      })
-      .join("");
-    return `<div class="overlay"><div class="dialog"><h3>${escapeHtml(f.title)}</h3>
-      <form class="form" onsubmit="return false">${fields}</form>
-      <div class="actions">
-        ${f.onDelete ? `<button class="danger" data-action="form-delete">${t(L, "delete")}</button>` : ""}
-        <button data-action="form-cancel">${t(L, "cancel")}</button>
-        <button class="primary" data-action="form-save">${t(L, "save")}</button>
-      </div></div></div>`;
+    const fields = f.fields.map((field) => {
+      const id = `f-${field.key}`;
+      if (field.type === "bool") {
+        return html`<div class="field"><label class="check"><input type="checkbox" id="${id}" name="${field.key}" />
+          ${field.label}</label></div>`;
+      }
+      if (field.type === "select") {
+        const opts = field.options.map(([v, label]) => html`<option value="${v}">${label}</option>`);
+        return html`<div class="field"><label for="${id}">${field.label}</label>
+          <select id="${id}" name="${field.key}">${opts}</select></div>`;
+      }
+      if (field.type === "multi") {
+        const chips = field.options.map(
+          ([v, label]) => html`<label><input type="checkbox" name="${field.key}" value="${v}" />${label}</label>`,
+        );
+        return html`<fieldset><legend>${field.label}</legend><div class="chips">${chips}</div></fieldset>`;
+      }
+      const type = field.type === "number" ? "number" : "text";
+      return html`<div class="field"><label for="${id}">${field.label}</label>
+        <input type="${type}" id="${id}" name="${field.key}" ${type === "number" ? raw('inputmode="numeric"') : ""} /></div>`;
+    });
+    return html`<h3 id="dlg-form-title">${f.title}</h3>
+      <form class="form" novalidate>${fields}
+        <div class="actions">
+          ${f.onDelete ? html`<button type="button" class="danger" data-action="form-delete">${t(L, "delete")}</button>` : ""}
+          <button type="button" data-action="form-cancel">${t(L, "cancel")}</button>
+          <button type="button" class="primary" data-action="form-save">${t(L, "save")}</button>
+        </div>
+      </form>`;
   }
 
-  /** Put current values into the freshly rendered form inputs. */
+  /** Put the form's current values into its freshly rendered inputs. */
   _fillForm() {
-    const root = this.shadowRoot.querySelector("form.form");
+    const root = this._formEl();
     for (const field of this._form.fields) {
       const value = this._form.values[field.key];
       if (field.type === "bool") {
         root.querySelector(`[name="${field.key}"]`).checked = Boolean(value);
       } else if (field.type === "multi") {
         const set = new Set((value ?? []).map(Number));
-        for (const input of root.querySelectorAll(`[name="${field.key}"]`)) {
-          input.checked = set.has(Number(input.value));
-        }
-      } else {
-        const input = root.querySelector(`[name="${field.key}"]`);
-        if (value !== undefined && value !== null) input.value = String(value);
+        for (const input of root.querySelectorAll(`[name="${field.key}"]`)) input.checked = set.has(Number(input.value));
+      } else if (value !== undefined && value !== null) {
+        root.querySelector(`[name="${field.key}"]`).value = String(value);
       }
     }
   }
+}
 
-  _renderSheet() {
-    if (!this._sheet) return "";
-    const L = this._lang;
-    const items = this._sheet.items
-      .map((item, i) => `<button data-action="sheet-item" data-index="${i}">${escapeHtml(item.label)}</button>`)
-      .join("");
-    return `<div class="overlay"><div class="dialog"><h3>${escapeHtml(this._sheet.title)}</h3>
-      <div class="sheet">${items}<button data-action="sheet-close">${t(L, "cancel")}</button></div></div></div>`;
-  }
-
-  _renderDialog() {
-    if (!this._dialog) return "";
-    const L = this._lang;
-    return `<div class="overlay"><div class="dialog">
-      <div>${escapeHtml(this._dialog.text)}</div>
-      <div class="actions">
-        <button data-action="dialog-cancel">${t(L, "cancel")}</button>
-        <button class="primary" data-action="dialog-yes">${t(L, "yes")}</button>
-      </div></div></div>`;
-  }
-
-  _renderPinPad() {
-    const L = this._lang;
-    const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
-      .map((d) => `<button data-action="pin-digit" data-digit="${d}">${d}</button>`)
-      .join("");
-    return `<div class="overlay"><div class="dialog pinpad"><h3>${t(L, "enter_pin")}</h3>
-      <div class="pin-dots">${"●".repeat(this._pin.length) || "&nbsp;"}</div>
-      <div class="keys">${keys}
-        <button data-action="pin-back">⌫</button>
-        <button data-action="pin-digit" data-digit="0">0</button>
-        <button data-action="pin-ok">OK</button>
-      </div>
-      <div class="actions"><button data-action="pin-cancel">${t(L, "cancel")}</button></div>
-    </div></div>`;
-  }
-
-  _renderCleanHands() {
-    const L = this._lang;
-    const text = this._state?.settings?.clean_hands_text || t(L, "clean_hands");
-    return `<div class="overlay clean-hands" data-action="clean-hands">
-      <div>🧼 ${escapeHtml(text)}<small>${t(L, "tap_to_continue")}</small></div></div>`;
-  }
+/** A selector that finds "the same" control after a re-render (for focus restore). */
+function focusKey(el) {
+  const attrs = ["action", "id", "day", "kid", "tab", "filter", "currency", "week"]
+    .filter((a) => el.dataset?.[a] !== undefined)
+    .map((a) => `[data-${a}="${globalThis.CSS?.escape?.(el.dataset[a]) ?? el.dataset[a]}"]`);
+  return attrs.length ? attrs.join("") : null;
 }
 
 if (globalThis.customElements && !customElements.get("chores-and-rewards-panel")) {

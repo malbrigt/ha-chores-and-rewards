@@ -53,6 +53,11 @@ The screen is a landscape kitchen tablet. There are 3 kids, 2 of whom mainly use
   - **Logg:** latest 200 audit entries.
 - It auto-locks after `pin_timeout_seconds` of no parent actions. An expired session reopens the PIN pad.
 
+## Implementation notes (D48)
+- Icons are `ha-icon` with mdi names (lock, chevrons, dots-vertical, alert, hand-wash); no emoji.
+- All modals are native `<dialog>`s: Escape closes them, and Enter saves a form.
+- On a phone, or when HA reports `narrow`, the overview and admin collapse to one column.
+
 ## Idle
 - After `idle_seconds` (60) the screen returns to the overview.
 - After `wake_seconds` (300) it shows the "Clean hands?" overlay; one tap continues.

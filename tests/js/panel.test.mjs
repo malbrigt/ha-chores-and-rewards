@@ -192,3 +192,12 @@ test("LOG_GROUPS covers every audited action with a label", async () => {
   }
   assert.match(shortDay("2026-10-12", "nb"), /^man\.? 12\.10\.?$/);
 });
+
+test("html`` escapes values unless raw(); arrays and nested templates compose", async () => {
+  const { html, raw } = await import("../../custom_components/chores_and_rewards/frontend/panel.js");
+  const name = `<img src=x onerror=alert(1)>`;
+  assert.equal(String(html`<b>${name}</b>`), "<b>&lt;img src=x onerror=alert(1)&gt;</b>");
+  assert.equal(String(html`<i>${raw("<br>")}</i>`), "<i><br></i>");
+  assert.equal(String(html`${[html`<p>${"a&b"}</p>`, "<x>"]}`), "<p>a&amp;b</p>&lt;x&gt;");
+  assert.equal(String(html`${null}${undefined}${false}${0}`), "0");
+});

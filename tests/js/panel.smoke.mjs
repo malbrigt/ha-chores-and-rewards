@@ -69,6 +69,7 @@ function fakeHass() {
     language: "nb",
     connection: {
       addEventListener() {},
+      removeEventListener() {},
       subscribeMessage: async () => () => {},
       sendMessagePromise: async (msg) => {
         calls.push(msg);
@@ -244,4 +245,37 @@ test("payout Detaljer opens the log filtered on kid, week and review actions (D4
   assert.ok(root.querySelector(".late-row .late"), "late tick flagged");
   assert.equal(root.querySelector('[data-filter="kid"]').value, "1");
   assert.equal(root.querySelector('[data-filter="group"]').value, "review");
+});
+
+test("native dialogs: Escape closes, Enter saves a form, focus survives a reload", async () => {
+  const { root, hass } = await mount();
+  // Escape on the confirm dialog (the browser fires "cancel") closes it via our state.
+  click(root, '[data-action="toggle"][data-id="1"]');
+  await tick();
+  const confirm = root.querySelector("dialog.dialog");
+  assert.ok(confirm, "confirm is a native <dialog>");
+  confirm.dispatchEvent(new window.Event("cancel", { cancelable: true }));
+  await tick();
+  assert.equal(root.querySelector("dialog.dialog"), null);
+
+  // Enter in a form input saves.
+  click(root, '[data-action="lock-toggle"]');
+  for (const d of "1234") click(root, `[data-action="pin-digit"][data-digit="${d}"]`);
+  click(root, '[data-action="pin-ok"]');
+  await tick();
+  click(root, '[data-action="adjust"][data-kid="1"]');
+  await tick();
+  const form = root.querySelector("form.form");
+  form.querySelector('[name="amount"]').value = "5";
+  const note = form.querySelector('[name="note"]');
+  note.value = "Bonus";
+  note.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, composed: true }));
+  await tick();
+  assert.ok(hass.calls.some((c) => c.type.endsWith("parent/adjust") && c.amount === 5 && c.note === "Bonus"));
+
+  // A background reload keeps keyboard focus on the same control.
+  const kidButton = root.querySelector('[data-action="kid"][data-kid="2"]');
+  kidButton.focus();
+  await root.host._reload();
+  assert.equal(root.activeElement?.dataset.kid, "2");
 });

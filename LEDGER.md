@@ -17,6 +17,7 @@ Each step records its status, what was built, how it was solved, any deviations,
 | 11 | Kids fix past days, audited taps, log review | ✅ |
 | 12 | Database review and clean STRICT schema | ✅ |
 | 13 | Replayable audit log | ✅ |
+| 14 | Full code review: HA patterns, layering, panel | ✅ |
 
 ---
 
@@ -454,3 +455,45 @@ Adjustments also lacked their own id and week.
 **Decisions:** D46.
 
 **Tests:** 184 Python. JS, smoke and E2E green.
+
+---
+
+## Step 14: Full code review before testing ✅ (user request)
+Three parallel reviews: UI against HA frontend conventions, backend against HA integration guidelines and the quality scale, and backend duplication/design. User decisions: plain JS done right (no Lit, no internal `ha-*` beyond `ha-icon`/`ha-menu-button`), and the dispatcher signal only, with no bus events.
+
+**A. HA patterns (`a89e9b5`)**
+- **Backup:** holds the write lock from pre to post, like the recorder (D23 revised).
+- **PIN change:** now the **reconfigure** flow (reload), replacing an options flow that also fired on an entry rename.
+- **Setup errors:** translated `ConfigEntryError`/`ConfigEntryNotReady`.
+- **Sensors:** one **device per kid**, `has_entity_name`; device renamed with the kid and removed when the kid is deleted; `PARALLEL_UPDATES`; debounced refresh.
+- **Signals:** dispatcher only, so nothing reaches the recorder.
+- **Other:** `sqlite_errorname` instead of message matching; translations get `data_description`.
+
+**B. Layering and duplication (`79ffe0a`)**
+- **New modules:**
+  - `actions.py`: use cases, audited.
+  - `views.py`: pure read models, with balances batched instead of N+1 queries.
+  - `serialize.py`: one JSON shape per type, shared by the API, the audit log and replay.
+  - `audit.py`: an `AuditAction` enum that drives the replay and contract tests.
+- **Handlers:** WS handlers are thin and typed (`Handler` Protocol). `store.py` is only HA glue.
+- **Repo:** `save_x`/`get_x` by id, a `_where` builder, `RETURNING` instead of re-reads, and the `WeekStatus` enum.
+- **Dead code removed:** `group_by_slot`, `transition(open_week)`, session helpers used only by tests, `list_weeks`.
+- **Tests:** helpers consolidated into `ws_helpers` (`midnight`, `kid_board`, one `TEST_PIN`).
+
+**C. Panel rebuilt, plain JS done right (this commit)**
+- **Bugs fixed:**
+  - the reconnect `ready` listener was added again on every re-attach;
+  - a failed subscription was never retried;
+  - overlapping reloads could finish out of order (now a request counter);
+  - the PIN keyboard listener was on `window`.
+- **Rendering:** the persistent shell is built once (constructable stylesheet). `<main>` updates with focus restored, and an open select/input is never yanked.
+- **Dialogs:** native `<dialog>` for confirm, sheet, form, PIN and "Clean hands?" (Escape, focus trap, inert background). Enter saves a form. "Clean hands?" never covers a form or the PIN pad.
+- **Templating:** the escaping `html` template replaces hand-escaping.
+- **Theming:** HA 2026 tokens (font, header height and border, safe area, radii). On-colour text uses `--text-primary-color`; a screenshot showed `--text-light-primary-color` is dark text.
+- **Icons:** mdi via `ha-icon`.
+- **Layout and accessibility:** ARIA labels and roles (checkbox, progressbar, status, cell labels), 44px targets, one-column layout when narrow.
+- **Found while building:** a dialog was never stored, so each render created another. The smoke test caught it, and a per-test timeout now turns such hangs into failures.
+
+**Tests:** 186 Python, 20 JS unit, 9 smoke (now also covering Escape, Enter-to-save and focus across a reload), and E2E. Screenshots reviewed.
+
+**Spec note for the user:** §11 still says the kitchen screen runs as an admin (superseded by D14), and §12 still lists sensors as an open decision (decided: yes, D2/D41).
