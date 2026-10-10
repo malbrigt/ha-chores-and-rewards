@@ -230,3 +230,31 @@ async def test_diagnostics_redacts_pin(hass, setup_entry, freezer):
     assert diag["db"]["counts"]["kids"] == 1
     assert diag["db"]["open_weeks"] == ["2026-10-12"]
     assert diag["db"]["schema_version"] == 1
+
+
+async def test_week_balances_matches_per_kid_rules(hass, setup_entry, freezer):
+    """D47: the batched read model gives the same numbers as the pure rules per kid."""
+    from custom_components.chores_and_rewards.logic import compute_balance, resolve_cap, week_pot
+    from custom_components.chores_and_rewards.views import week_balances
+
+    freezer.move_to(at(MON))
+    store = (await setup_entry()).runtime_data
+    kid = await _seed(store)
+
+    def check(repo):
+        inst = repo.list_instances(day=MON)[0]
+        repo.set_status(inst.id, Status.DONE, by="kid")
+        repo.save_kid(Kid(0, "Bo"))
+        repo.set_kid_max(kid, 1, 20)
+        batched = week_balances(repo, MON, MON)
+        chores = repo.list_chores()
+        for k in repo.list_kids():
+            mine = repo.list_instances(week=MON, kid_id=k.id)
+            for c in repo.list_currencies():
+                pot = week_pot(mine, chores, k.id, MON, MON, c.id)
+                cap = resolve_cap(c, repo.kid_max(k.id).get(c.id), pot)
+                assert batched[k.id][c.id] == compute_balance(c, mine, 0, cap)
+        return batched
+
+    batched = await store.async_write(check)
+    assert batched[kid][1].total == 20  # 30 earned, capped at Ada's max of 20
