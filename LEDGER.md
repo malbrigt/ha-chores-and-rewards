@@ -16,6 +16,7 @@ Each step records its status, what was built, how it was solved, any deviations,
 | 10 | Sensors and release | ✅ |
 | 11 | Kids fix past days, audited taps, log review | ✅ |
 | 12 | Database review and clean STRICT schema | ✅ |
+| 13 | Replayable audit log | ✅ |
 
 ---
 
@@ -425,3 +426,31 @@ What we should have done from the start:
 **Decisions:** D21 revised, D45 added. Sources: sqlite.org docs on stricttables, datatype3, foreignkeys, pragma and partialindex.
 
 **Tests:** 182 Python (constraint tests, legacy reset, normalized values, one-encoding weekdays, duplicate names over WS), JS, smoke and E2E unchanged and green.
+
+---
+
+## Step 13: Replayable audit log ✅ (user request)
+**Goal:** the full usage of the integration can be replayed from the audit log.
+
+**Gaps found** by listing every DB write. These writes were not audited:
+- chore rows created at rollover, on startup and after edits;
+- pending rows refreshed or deleted after chore or kid edits;
+- automatic "missed" at midnight;
+- new weeks;
+- the rollover progress marker;
+- the DB's creation and its seeded currencies;
+- PIN usage.
+
+Adjustments also lacked their own id and week.
+
+**Built:**
+- **`db.py`:** the write methods audit themselves (`week_open`, `instance_create`/`update`/`delete` with full snapshots via `instance_snapshot`). The schema seeds `db_created` plus `currency_save` rows.
+- **`store.py`:** `auto_missed` and `rollover` (marker) entries, plus `async_audit` for events that change no stored state.
+- **API:** admin-triggered refreshes are attributed to the parent's HA user. `adjust` is logged as entity "adjustment". PIN unlock, wrong PIN, lockout, lock and reset are logged.
+- **`tests/replay.py`** (folds the log into state) and **`tests/test_replay.py`**: a two-week scenario with every change type, then `replay(log) == snapshot(db)`.
+
+**Bug found by mutation-testing the replay test:** I removed one audit call on purpose, and the test still passed. Cause: SQLite reused the id of a deleted chore row, so two different rows shared one id in the history. `instances` now uses `AUTOINCREMENT` (D46), and a test asserts ids are never reused. After the fix, the same mutation fails the state comparison as it should.
+
+**Decisions:** D46.
+
+**Tests:** 184 Python. JS, smoke and E2E green.

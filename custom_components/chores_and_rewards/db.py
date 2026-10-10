@@ -12,6 +12,7 @@ import logging
 import sqlite3
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import closing, contextmanager
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -112,7 +113,10 @@ CREATE TABLE weeks (
 -- snapshot of the chore at that time (D6). week is derived from day; the CHECK keeps
 -- it consistent and the FK ties rows to their week.
 CREATE TABLE instances (
-    id INTEGER PRIMARY KEY,
+    -- AUTOINCREMENT: ids of deleted rows are never reused, so audit entity_ids stay
+    -- unambiguous and the log can be replayed (D46). Only this table hard-deletes rows
+    -- that the audit log refers to by id.
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     week TEXT NOT NULL REFERENCES weeks (start)
         CHECK (week = date(day, '-6 days', 'weekday 1')),
     kid_id INTEGER NOT NULL REFERENCES kids (id),
@@ -192,6 +196,18 @@ CREATE INDEX audit_ts ON audit_log (ts);
 INSERT INTO currencies (name, unit, icon, payout_weekday, can_be_lost, cap_mode, sort)
 VALUES ('Skjermtid', 'min', 'mdi:tablet', 4, 1, 'fixed', 0),
        ('Ukepenger', 'kr', 'mdi:cash', 5, 0, 'pot', 1);
+
+-- The log starts with the database itself, so all state can be replayed from it (D46).
+INSERT INTO audit_log (ts, user_id, action) VALUES
+    (strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'), 'system', 'db_created');
+INSERT INTO audit_log (ts, user_id, action, entity, entity_id, after)
+SELECT strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'), 'system', 'currency_save', 'currency', id,
+       json_object('id', id, 'name', name, 'unit', unit, 'icon', icon,
+                   'payout_weekday', payout_weekday,
+                   'can_be_lost', json(iif(can_be_lost, 'true', 'false')),
+                   'cap_mode', cap_mode, 'default_max', default_max,
+                   'active', json(iif(active, 'true', 'false')), 'sort', sort)
+FROM currencies;
 """
 
 # Index i holds the script that upgrades schema version i to i + 1 (PRAGMA user_version).
@@ -208,6 +224,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 }
 
 META_LAST_FINALIZED = "last_finalized"
+SYSTEM = "system"  # audit user for automatic changes (same value as const.SYSTEM_USER)
 
 
 def now_iso() -> str:
@@ -513,8 +530,12 @@ class Repo:
 
     # weeks
 
-    def ensure_week(self, start: date) -> None:
-        self._x("INSERT OR IGNORE INTO weeks (start) VALUES (?)", [start.isoformat()])
+    def ensure_week(self, start: date, by: str | None = SYSTEM) -> None:
+        row = self._x(
+            "INSERT OR IGNORE INTO weeks (start) VALUES (?) RETURNING start", [start.isoformat()]
+        ).fetchone()
+        if row is not None:
+            self.audit("week_open", user_id=by, entity="week", day=start)
 
     def week_status(self, start: date) -> str | None:
         row = self._x("SELECT status FROM weeks WHERE start = ?", [start.isoformat()]).fetchone()
@@ -542,7 +563,7 @@ class Repo:
 
     # instances
 
-    def insert_instances(self, instances: Iterable[Instance]) -> int:
+    def insert_instances(self, instances: Iterable[Instance], by: str | None = SYSTEM) -> int:
         """Insert new instances; existing (kid, chore, day) rows are left alone.
 
         The week is derived from each instance's day, so callers can't mismatch them.
@@ -570,8 +591,24 @@ class Repo:
             ).fetchone()
             if row is not None:  # None: the (kid, chore, day) row already existed
                 self._set_instance_values(row[0], i.values)
+                self._audit_instance("instance_create", by, replace(i, id=row[0]))
                 inserted += 1
         return inserted
+
+    def _audit_instance(
+        self, action: str, by: str | None, inst: Instance, before: Any = None
+    ) -> None:
+        """Full snapshot, so the row can be rebuilt from the log alone (D46)."""
+        self.audit(
+            action,
+            user_id=by,
+            entity="instance",
+            entity_id=inst.id,
+            before=before,
+            after=instance_snapshot(inst),
+            kid_id=inst.kid_id,
+            day=inst.day,
+        )
 
     def _set_instance_values(self, instance_id: int, values: Mapping[int, int]) -> None:
         self._x("DELETE FROM instance_values WHERE instance_id = ?", [instance_id])
@@ -619,7 +656,7 @@ class Repo:
             [Status(status).value, at or now_iso(), by, instance_id],
         )
 
-    def resync_pending(self, chore: Chore, day: date) -> None:
+    def resync_pending(self, chore: Chore, day: date, by: str | None = SYSTEM) -> None:
         """Refresh pending snapshots of `chore` on `day` after an edit (D7)."""
         ids = self._x(
             "UPDATE instances SET type = ?, slot = ?, name = ?, icon = ?"
@@ -628,21 +665,41 @@ class Repo:
         ).fetchall()
         for (instance_id,) in ids:
             self._set_instance_values(instance_id, chore.values)
+            inst = self.get_instance(instance_id)
+            assert inst is not None
+            self._audit_instance("instance_update", by, inst)
 
-    def delete_pending(self, chore_id: int, day: date, keep_kids: Iterable[int] = ()) -> None:
+    def delete_pending(
+        self, chore_id: int, day: date, keep_kids: Iterable[int] = (), by: str | None = SYSTEM
+    ) -> None:
         """Drop pending rows for a chore on a day, e.g. when it is unassigned or deactivated."""
         keep = list(keep_kids)
         sql = "DELETE FROM instances WHERE chore_id = ? AND day = ? AND status = 'pending'"
         if keep:
             sql += f" AND kid_id NOT IN ({','.join('?' * len(keep))})"
-        self._x(sql, [chore_id, day.isoformat(), *keep])
+        self._audit_deleted(
+            self._x(sql + " RETURNING id, kid_id, day", [chore_id, day.isoformat(), *keep]), by
+        )
 
-    def delete_pending_for_kid(self, kid_id: int, day: date) -> None:
+    def delete_pending_for_kid(self, kid_id: int, day: date, by: str | None = SYSTEM) -> None:
         """Drop a kid's pending rows on a day, e.g. when the kid is deactivated."""
-        self._x(
-            "DELETE FROM instances WHERE kid_id = ? AND day = ? AND status = 'pending'",
+        rows = self._x(
+            "DELETE FROM instances WHERE kid_id = ? AND day = ? AND status = 'pending'"
+            " RETURNING id, kid_id, day",
             [kid_id, day.isoformat()],
         )
+        self._audit_deleted(rows, by)
+
+    def _audit_deleted(self, rows: sqlite3.Cursor, by: str | None) -> None:
+        for instance_id, kid_id, day in rows.fetchall():
+            self.audit(
+                "instance_delete",
+                user_id=by,
+                entity="instance",
+                entity_id=instance_id,
+                kid_id=kid_id,
+                day=date.fromisoformat(day),
+            )
 
     # adjustments
 
@@ -790,6 +847,22 @@ class Repo:
 def _id(cur: sqlite3.Cursor) -> int:
     assert cur.lastrowid is not None
     return cur.lastrowid
+
+
+def instance_snapshot(inst: Instance) -> dict[str, Any]:
+    """Everything needed to recreate an instance row (D46)."""
+    return {
+        "id": inst.id,
+        "kid_id": inst.kid_id,
+        "chore_id": inst.chore_id,
+        "day": inst.day.isoformat(),
+        "type": inst.type.value,
+        "slot": inst.slot.value,
+        "name": inst.name,
+        "icon": inst.icon,
+        "values": {str(k): v for k, v in inst.values.items()},
+        "status": inst.status.value,
+    }
 
 
 def _json_or_none(value: Any) -> str | None:

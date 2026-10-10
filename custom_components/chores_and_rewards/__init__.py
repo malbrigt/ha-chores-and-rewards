@@ -72,6 +72,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ChoresConfigEntry) -> bo
 async def _async_entry_updated(hass: HomeAssistant, entry: ChoresConfigEntry) -> None:
     """The options flow changed the PIN: log out parents and clear any lockout."""
     entry.runtime_data.sessions.reset()
+    await entry.runtime_data.async_audit("pin_reset", None, note="options flow")
 
 
 async def _async_register_panel(hass: HomeAssistant, entry: ChoresConfigEntry) -> None:

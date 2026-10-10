@@ -139,7 +139,7 @@ async def test_midnight_loss_then_kid_fixes_yesterday(hass, ws, freezer):
     assert (bal["earned"], bal["lost"]) == (10, 30)
 
     store = ws.entry.runtime_data
-    log = await store.async_read(lambda r: r.list_audit())
+    log = await store.async_read(lambda r: r.list_audit(actions=["check", "uncheck"]))
     taps = [(e["action"], e["day"], e["late"], e["kid_id"]) for e in log[:3]]
     assert taps == [
         ("uncheck", "2026-10-12", True, ada),

@@ -236,7 +236,9 @@ async def test_admin_actions_are_audited(ws):
     ada = (await ok(ws, "admin/kid/save", token=token, name="Ada"))["id"]
     await ok(ws, "admin/kid/save", token=token, kid_id=ada, name="Ada B")
     await ok(ws, "admin/settings/save", token=token, settings={"clean_hands_enabled": False})
-    log = await ws.entry.runtime_data.async_read(lambda r: r.list_audit())
+    log = await ws.entry.runtime_data.async_read(
+        lambda r: r.list_audit(actions=["settings_save", "kid_save"])
+    )
     assert [e["action"] for e in log] == ["settings_save", "kid_save", "kid_save"]
     assert log[1]["before"] and '"Ada B"' in log[1]["after"]
     assert all(e["user_id"] for e in log)

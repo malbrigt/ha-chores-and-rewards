@@ -315,7 +315,7 @@ def test_audit_log(db):
         )
     )
     db.run(lambda r: r.audit("close_week", user_id=None))
-    log = db.run(lambda r: r.list_audit())
+    log = db.run(lambda r: r.list_audit(actions=["close_week", "reject"]))
     assert [e["action"] for e in log] == ["close_week", "reject"]
     assert log[1]["entity_id"] == 5 and '"rejected"' in log[1]["after"]
     assert log[0]["before"] is None
@@ -368,7 +368,7 @@ def test_audit_filters(db):
     db.run(lambda r: r.audit("check", user_id="u", kid_id=1, day=date(2026, 9, 28)))
     db.run(lambda r: r.audit("settings_save", user_id="u"))
     count = lambda **kw: len(db.run(lambda r: r.list_audit(**kw)))  # noqa: E731
-    assert count() == 5
+    assert count() == 5 + 3  # + db_created and the two seeded currencies
     assert count(actions=["check"]) == 3
     assert count(actions=[]) == 0
     assert count(kid_id=1) == 3
@@ -482,3 +482,13 @@ def test_integrity_and_fk_checks_clean(db):
             " WHERE strict = 0 AND schema = 'main' AND name NOT LIKE 'sqlite_%'"
         ).fetchall()
         assert strict == []
+
+
+def test_instance_ids_are_never_reused(db):
+    """D46: a deleted instance's id must not come back, or audit entity_ids get ambiguous."""
+    ada, cid = _setup_instances(db)
+    old = db.run(lambda r: r.list_instances())[0].id
+    db.run(lambda r: r.delete_pending(cid, MON))
+    chores = db.run(lambda r: r.list_chores())
+    db.run(lambda r: r.insert_instances(instances_for_day(chores, [ada], MON)))
+    assert db.run(lambda r: r.list_instances())[0].id > old

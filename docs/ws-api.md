@@ -89,3 +89,16 @@ Settings keys:
 | `parent/close_week` | (nothing) | `{}`. Closes the current week early. The week freezes: no taps, no midnight losses, no new rows (D31). |
 | `parent/reopen_week` | (nothing) | `{}`. Undoes an early close of the current week. Errors with `not_allowed` if the week isn't closed. |
 | `parent/audit` | `limit?` (default 100), `actions?: [str]`, `kid_id?`, `week?` (any date in it; matches the chore's day), `late_only?` | `{entries: [{ts, user_id, action, entity, entity_id, before, after, note, kid_id, day, late}]}` newest first (D44) |
+
+## Audit actions (D46)
+The log can be replayed into the full state (`tests/replay.py`).
+
+**Changes state:**
+- `kid_save`, `kid_delete`, `currency_save`, `currency_delete`, `chore_save`, `chore_delete`, `settings_save`
+- `week_open`, `close_week`, `reopen_week`
+- `instance_create`, `instance_update`, `instance_delete`
+- `check`, `uncheck`, `set_status`, `auto_missed`
+- `adjust`, `payout`, `payout_undo`
+- `rollover`
+
+**Usage only:** `db_created`, `pin_unlock`, `pin_wrong_pin`, `pin_locked_out`, `pin_lock`, `pin_reset`.

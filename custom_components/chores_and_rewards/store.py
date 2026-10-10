@@ -11,6 +11,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, timedelta
+from typing import Any
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
@@ -72,6 +73,12 @@ class ChoresStore:
             self.async_notify()
         return result
 
+    async def async_audit(self, action: str, user_id: str | None, **kwargs: Any) -> None:
+        """Audit an event that changes no stored state (e.g. PIN usage). No update event."""
+        await self.async_write(
+            lambda repo: repo.audit(action, user_id=user_id, **kwargs), notify=False
+        )
+
     @callback
     def async_notify(self) -> None:
         self.hass.bus.async_fire(EVENT_UPDATED)
@@ -100,7 +107,7 @@ def rollover(repo: Repo, today: date) -> int:
     - Weeks before the current one are closed (D1, AC-9.2).
     - Today's instances are created (D6).
     """
-    last = repo.last_finalized()
+    start = last = repo.last_finalized()
     if last is None:  # fresh install: nothing in the past to judge
         last = today - timedelta(days=1)
         repo.set_last_finalized(last)
@@ -118,7 +125,25 @@ def rollover(repo: Repo, today: date) -> int:
                 if done.status is not inst.status:
                     assert inst.id is not None
                     repo.set_status(inst.id, done.status, by=SYSTEM_USER)
+                    repo.audit(
+                        "auto_missed",
+                        user_id=SYSTEM_USER,
+                        entity="instance",
+                        entity_id=inst.id,
+                        before={"status": inst.status.value},
+                        after={"status": done.status.value, "chore": inst.name},
+                        kid_id=inst.kid_id,
+                        day=day,
+                    )
             repo.set_last_finalized(day)
+    new_last = repo.last_finalized()
+    if new_last != start:  # D46: the progress marker is replayable too
+        repo.audit(
+            "rollover",
+            user_id=SYSTEM_USER,
+            after={"last_finalized": new_last.isoformat() if new_last else None},
+            day=new_last,
+        )
     for week in weeks_to_close(repo.open_weeks(), today):
         repo.close_week(week, by=SYSTEM_USER)
         repo.audit("close_week", user_id=SYSTEM_USER, entity="week", day=week, note="auto")
@@ -127,35 +152,39 @@ def rollover(repo: Repo, today: date) -> int:
     return len(days)
 
 
-def ensure_today(repo: Repo, today: date) -> None:
+def ensure_today(repo: Repo, today: date, by: str | None = SYSTEM_USER) -> None:
     """Create today's instances for current kids/chores (safe to call any time).
 
     Nothing is created in a week that was closed early (D31).
     """
-    repo.ensure_week(week_start(today))
+    repo.ensure_week(week_start(today), by=by)
     if repo.week_status(week_start(today)) == "closed":
         return
     kids = [k.id for k in repo.list_kids()]
-    repo.insert_instances(instances_for_day(repo.list_chores(), kids, today))
+    repo.insert_instances(instances_for_day(repo.list_chores(), kids, today), by=by)
 
 
-def refresh_today_for_chore(repo: Repo, chore_id: int, today: date) -> None:
+def refresh_today_for_chore(
+    repo: Repo, chore_id: int, today: date, by: str | None = SYSTEM_USER
+) -> None:
     """Bring today's rows in line with an edited/deleted chore (D7). History is untouched."""
     chore = repo.get_chore(chore_id)
     kids = [k.id for k in repo.list_kids()]
     keep = [k for k in kids if chore is not None and is_scheduled(chore, k, today)]
-    repo.delete_pending(chore_id, today, keep_kids=keep)
+    repo.delete_pending(chore_id, today, keep_kids=keep, by=by)
     if chore is not None:
-        repo.resync_pending(chore, today)
-    ensure_today(repo, today)
+        repo.resync_pending(chore, today, by=by)
+    ensure_today(repo, today, by=by)
 
 
-def refresh_today_for_kid(repo: Repo, kid_id: int, today: date) -> None:
+def refresh_today_for_kid(
+    repo: Repo, kid_id: int, today: date, by: str | None = SYSTEM_USER
+) -> None:
     """Drop today's pending rows for an inactive/deleted kid, or create them for an active one."""
     kid = repo.get_kid(kid_id)
     if kid is None or not kid.active:
-        repo.delete_pending_for_kid(kid_id, today)
-    ensure_today(repo, today)
+        repo.delete_pending_for_kid(kid_id, today, by=by)
+    ensure_today(repo, today, by=by)
 
 
 # --- Read models --------------------------------------------------------------

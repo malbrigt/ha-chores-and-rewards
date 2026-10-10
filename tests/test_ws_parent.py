@@ -173,7 +173,8 @@ async def test_close_week_freezes_and_reopen(hass, ws, freezer):
 
 async def test_auto_close_audit_and_limit(hass, ws, freezer):
     token, _, _ = await _setup(ws)
-    entries = (await ok(ws, "parent/audit", token=token))["entries"]
+    query = {"actions": ["chore_save", "kid_save"]}
+    entries = (await ok(ws, "parent/audit", token=token, **query))["entries"]
     assert [e["action"] for e in entries] == ["chore_save", "kid_save"]
     assert await err(ws, "parent/audit", token=token, limit=0) == "invalid_format"
 
@@ -198,4 +199,4 @@ async def test_audit_filters_for_review(ws):
     ]
     assert await actions(kid_id=bo) == ["kid_save"]
     assert await actions(late_only=True) == []
-    assert await actions(week="2026-10-05") == []
+    assert await actions(week="2026-10-05") == ["rollover"]  # fresh install: marker = Sunday

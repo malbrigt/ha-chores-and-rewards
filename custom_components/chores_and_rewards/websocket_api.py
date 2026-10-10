@@ -372,10 +372,16 @@ def _audit_status(
 @command({vol.Required("type"): P + "pin/unlock", vol.Required("pin"): str}, parent=False)
 async def ws_pin_unlock(hass, connection, msg, store: ChoresStore) -> dict[str, Any]:
     """AC-7.1, AC-7.2."""
-    store.sessions.check_allowed()
-    entry = hass.config_entries.async_loaded_entries(DOMAIN)[0]
-    ok = await hass.async_add_executor_job(verify_pin, msg["pin"], entry.data[CONF_PIN_HASH])
-    token = store.sessions.unlock(ok)  # raises wrong_pin / locked_out
+    user = _user(connection)
+    try:
+        store.sessions.check_allowed()
+        entry = hass.config_entries.async_loaded_entries(DOMAIN)[0]
+        ok = await hass.async_add_executor_job(verify_pin, msg["pin"], entry.data[CONF_PIN_HASH])
+        token = store.sessions.unlock(ok)  # raises wrong_pin / locked_out
+    except RuleError as err:
+        await store.async_audit(f"pin_{err.code}", user)  # pin_wrong_pin / pin_locked_out
+        raise
+    await store.async_audit("pin_unlock", user)
     return {"token": token, "expires_in": store.sessions.expires_in(token)}
 
 
@@ -388,6 +394,7 @@ async def ws_pin_status(hass, connection, msg, store: ChoresStore) -> dict[str, 
 @command({vol.Required("type"): P + "pin/lock", vol.Required("token"): str}, parent=False)
 async def ws_pin_lock(hass, connection, msg, store: ChoresStore) -> dict[str, Any]:
     store.sessions.lock(msg["token"])
+    await store.async_audit("pin_lock", _user(connection))
     return {}
 
 
@@ -449,7 +456,7 @@ async def ws_kid_save(hass, connection, msg, store: ChoresStore) -> dict[str, An
             after=after,
             kid_id=kid_id,
         )
-        refresh_today_for_kid(repo, kid_id, today)
+        refresh_today_for_kid(repo, kid_id, today, by=user)
         return kid_id
 
     return {"id": await store.async_write(write)}
@@ -470,7 +477,7 @@ async def ws_kid_delete(hass, connection, msg, store: ChoresStore) -> dict[str, 
             before=kid_dict(kid),
             kid_id=kid.id,
         )
-        refresh_today_for_kid(repo, kid.id, today)
+        refresh_today_for_kid(repo, kid.id, today, by=user)
 
     await store.async_write(write)
     return {}
@@ -600,7 +607,7 @@ async def ws_chore_save(hass, connection, msg, store: ChoresStore) -> dict[str, 
             before=before_dict,
             after=chore_dict(saved),
         )
-        refresh_today_for_chore(repo, chore_id, today)
+        refresh_today_for_chore(repo, chore_id, today, by=user)
         return chore_id, payout_warnings(saved, repo.list_currencies())
 
     chore_id, warnings = await store.async_write(write)
@@ -621,7 +628,7 @@ async def ws_chore_delete(hass, connection, msg, store: ChoresStore) -> dict[str
             entity_id=chore.id,
             before=chore_dict(chore),
         )
-        refresh_today_for_chore(repo, chore.id, today)
+        refresh_today_for_chore(repo, chore.id, today, by=user)
 
     await store.async_write(write)
     return {}
@@ -715,9 +722,13 @@ async def ws_parent_adjust(hass, connection, msg, store: ChoresStore) -> dict[st
         repo.audit(
             "adjust",
             user_id=user,
-            entity="kid",
-            entity_id=msg["kid_id"],
-            after={"currency_id": msg["currency_id"], "amount": msg["amount"]},
+            entity="adjustment",
+            entity_id=adj_id,
+            after={
+                "week": week.isoformat(),
+                "currency_id": msg["currency_id"],
+                "amount": msg["amount"],
+            },
             note=msg["note"],
             kid_id=msg["kid_id"],
             day=today,
@@ -829,7 +840,7 @@ async def ws_parent_reopen_week(hass, connection, msg, store: ChoresStore) -> di
             raise RuleError("not_allowed")
         repo.reopen_week(week)
         repo.audit("reopen_week", user_id=user, entity="week", day=week)
-        ensure_today(repo, today)
+        ensure_today(repo, today, by=user)
 
     await store.async_write(write)
     return {}

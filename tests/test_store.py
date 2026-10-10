@@ -128,8 +128,17 @@ async def test_catch_up_three_days_across_monday(hass, setup_entry, freezer):
     assert by_day[TUE] == [("Dishes", Status.PENDING)]
     weeks = {w["start"]: w["status"] for w in await store.async_read(lambda r: r.list_weeks())}
     assert weeks == {"2026-10-05": "closed", "2026-10-12": "open"}
-    audit = await store.async_read(lambda r: r.list_audit())
-    assert [a["action"] for a in audit] == ["close_week"]
+    audit = await store.async_read(lambda r: r.list_audit(actions=["close_week"]))
+    assert [(a["day"], a["note"]) for a in audit] == [("2026-10-05", "auto")]
+    missed = await store.async_read(lambda r: r.list_audit(actions=["auto_missed"]))
+    assert sorted(a["day"] for a in missed) == [
+        "2026-10-09",
+        "2026-10-10",
+        "2026-10-11",
+        "2026-10-12",
+    ]
+    marker = await store.async_read(lambda r: r.list_audit(actions=["rollover"]))
+    assert '"last_finalized": "2026-10-12"' in marker[0]["after"]
 
 
 async def test_restart_same_day_is_idempotent(hass, setup_entry, freezer):
