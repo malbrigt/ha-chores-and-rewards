@@ -123,6 +123,7 @@ def rollover(repo: Repo, today: date) -> int:
         repo.close_week(week, by=SYSTEM_USER)
         repo.audit("close_week", user_id=SYSTEM_USER, entity="week", day=week, note="auto")
     ensure_today(repo, today)
+    repo.optimize()  # once a day, under the write lock (sqlite.org: run periodically)
     return len(days)
 
 

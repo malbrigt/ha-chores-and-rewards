@@ -413,7 +413,8 @@ What we should have done from the start:
 7. Case-insensitive unique active names, via partial indexes. Duplicates return the new `duplicate_name` WS error.
 8. `audit_log`: `entity_id` is INTEGER, `kid_id` has an FK, JSON is validated, `ts` is indexed. Week rows now use `day` instead of `entity_id`.
 9. The version moved from the meta table to `PRAGMA user_version`.
-10. PRAGMAs: `synchronous=NORMAL` and `optimize` on close; the duplicate busy timeout is gone.
+10. PRAGMAs: `synchronous=NORMAL`, and the duplicate busy timeout is gone. `optimize` runs after migrations and in the daily rollover.
+    - **CI caught a bug:** my first version ran `PRAGMA optimize` on every connection close. Unlocked reads then raced for the write lock, and on CI's Linux runner that failed with `database is locked`; it passed locally. `optimize` now runs only under the write lock.
 
 **Rebuild:**
 - Migrations were squashed into one schema. The runner and its backup-before-upgrade stay for future changes.

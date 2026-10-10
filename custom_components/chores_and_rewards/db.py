@@ -249,10 +249,8 @@ class Database:
     @contextmanager
     def transaction(self) -> Iterator[Repo]:
         """One connection, one transaction: commit on success, roll back on error."""
-        with closing(self._connect()) as conn:
-            with conn:
-                yield Repo(conn)
-            conn.execute("PRAGMA optimize")  # recommended before closing short-lived connections
+        with closing(self._connect()) as conn, conn:
+            yield Repo(conn)
 
     def run[T](self, fn: Callable[[Repo], T]) -> T:
         """Run `fn(repo)` in one transaction. Use with async_add_executor_job."""
@@ -279,6 +277,7 @@ class Database:
                 conn.executescript(
                     f"BEGIN; {MIGRATIONS[version]}\nPRAGMA user_version = {version + 1}; COMMIT;"
                 )
+            conn.execute("PRAGMA optimize")
             return SCHEMA_VERSION
 
     def _reset_legacy(self) -> None:
@@ -330,6 +329,12 @@ class Repo:
 
     def _x(self, sql: str, params: Iterable[Any] = ()) -> sqlite3.Cursor:
         return self.conn.execute(sql, tuple(params))
+
+    def optimize(self) -> None:
+        """Refresh query-planner stats. May write, so only call it under the store's write
+        lock (the daily rollover does); never from unlocked reads, or concurrent
+        connections can hit "database is locked"."""
+        self._x("PRAGMA optimize")
 
     # meta / settings
 
