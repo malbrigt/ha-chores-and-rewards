@@ -190,4 +190,4 @@ async def test_diagnostics_redacts_pin(hass, setup_entry, freezer):
     assert diag["entry"]["pin_hash"] == "**REDACTED**"
     assert diag["db"]["counts"]["kids"] == 1
     assert diag["db"]["open_weeks"] == ["2026-10-12"]
-    assert diag["db"]["schema_version"] == "1"
+    assert diag["db"]["schema_version"] == "2"

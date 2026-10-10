@@ -170,3 +170,25 @@ test("parentActions matches the shared fixture used by the Python tests", async 
     assert.deepEqual(parentActions(inst, today), c.actions, JSON.stringify(c));
   }
 });
+
+test("kidTap matches the shared fixture used by the Python tests (D8)", async () => {
+  const { kidTap, addDays } = await import("../../custom_components/chores_and_rewards/frontend/panel.js");
+  const fixture = JSON.parse(readFileSync(new URL("../fixtures/kid_actions.json", import.meta.url)));
+  const today = "2026-10-09";
+  for (const c of fixture.cases) {
+    const inst = { id: 1, type: c.type, status: c.status, day: addDays(today, c.day) };
+    assert.equal(kidTap(inst, today), c.tap, JSON.stringify(c));
+  }
+  assert.equal(kidTap({ id: null, status: "pending", day: today }, today), null); // preview
+});
+
+test("LOG_GROUPS covers every audited action with a label", async () => {
+  const { LOG_GROUPS, STRINGS, shortDay } = await import(
+    "../../custom_components/chores_and_rewards/frontend/panel.js"
+  );
+  for (const [group, actions] of Object.entries(LOG_GROUPS)) {
+    assert.ok(`g_${group}` in STRINGS.nb, group);
+    for (const a of actions ?? []) assert.ok(`a_${a}` in STRINGS.nb, a);
+  }
+  assert.match(shortDay("2026-10-12", "nb"), /^man\.? 12\.10\.?$/);
+});

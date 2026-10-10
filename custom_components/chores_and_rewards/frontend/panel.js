@@ -30,6 +30,26 @@ export const STRINGS = {
     tap_to_continue: "Trykk for å fortsette",
     confirm_uncheck: "Fjerne avkrysningen for «{name}»?",
     confirm_check: "Merke «{name}» som gjort?",
+    confirm_check_day: "Merke «{name}» som gjort for {day}?",
+    confirm_uncheck_day: "Fjerne avkrysningen for «{name}» ({day})?",
+    late_hint: "Krysset av på en senere dag",
+    details: "Detaljer",
+    log_all_kids: "Alle barn",
+    log_all_weeks: "Alle uker",
+    log_late_only: "Kun sene",
+    g_all: "Alt",
+    g_review: "Gjennomgang",
+    g_checks: "Avkrysninger",
+    g_parent: "Foreldreendringer",
+    g_money: "Saldo og utbetaling",
+    g_admin: "Administrasjon",
+    g_week: "Uke",
+    a_check: "Krysset av",
+    log_when: "Registrert",
+    log_event: "Hendelse",
+    log_what: "Hva",
+    log_day: "Gjelder dag",
+    a_uncheck: "Fjernet kryss",
     confirm_delete: "Slette «{name}»? Historikken beholdes.",
     confirm_close_week: "Avslutte uka nå? Resten av uka fryses.",
     yes: "Ja",
@@ -140,6 +160,26 @@ export const STRINGS = {
     tap_to_continue: "Tap to continue",
     confirm_uncheck: "Uncheck “{name}”?",
     confirm_check: "Mark “{name}” as done?",
+    confirm_check_day: "Mark “{name}” as done for {day}?",
+    confirm_uncheck_day: "Uncheck “{name}” ({day})?",
+    late_hint: "Ticked on a later day",
+    details: "Details",
+    log_all_kids: "All kids",
+    log_all_weeks: "All weeks",
+    log_late_only: "Late only",
+    g_all: "Everything",
+    g_review: "Review",
+    g_checks: "Ticks",
+    g_parent: "Parent changes",
+    g_money: "Balance and payouts",
+    g_admin: "Admin",
+    g_week: "Week",
+    a_check: "Ticked",
+    log_when: "Recorded",
+    log_event: "Event",
+    log_what: "What",
+    log_day: "For day",
+    a_uncheck: "Unticked",
     confirm_delete: "Delete “{name}”? History is kept.",
     confirm_close_week: "Close the week now? The rest of the week is frozen.",
     yes: "Yes",
@@ -334,6 +374,33 @@ export function parentActions(inst, today) {
   return out;
 }
 
+/** What a kid's tap does (mirrors logic.transition for kids, D8): tick, untick or nothing. */
+export function kidTap(inst, today) {
+  if (!inst?.id || inst.day > today) return null;
+  if (inst.status === "done") return "untick";
+  if (inst.status === "pending" || inst.status === "missed") return "tick";
+  return null; // excused / rejected: decided by a parent
+}
+
+/** Audit log filter groups (D44). `review` is what "Detaljer" on a payout opens. */
+export const LOG_GROUPS = {
+  all: null,
+  review: ["check", "uncheck", "set_status", "adjust", "payout", "payout_undo"],
+  checks: ["check", "uncheck"],
+  parent: ["set_status"],
+  money: ["adjust", "payout", "payout_undo"],
+  admin: [
+    "kid_save",
+    "kid_delete",
+    "chore_save",
+    "chore_delete",
+    "currency_save",
+    "currency_delete",
+    "settings_save",
+  ],
+  week: ["close_week", "reopen_week"],
+};
+
 /** "" → null, "12" → 12; anything non-numeric → null. */
 export function parseOptionalInt(value) {
   const text = String(value ?? "").trim();
@@ -353,6 +420,17 @@ export function formatDay(dateStr, lang) {
     timeZone: "UTC",
   }).format(d);
   return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** "man. 12.10." style short date for log rows and confirmations. */
+export function shortDay(dateStr, lang) {
+  const d = new Date(`${dateStr}T12:00:00Z`);
+  return new Intl.DateTimeFormat(LOCALE[lang], {
+    weekday: "short",
+    day: "numeric",
+    month: "numeric",
+    timeZone: "UTC",
+  }).format(d);
 }
 
 /** One-letter weekday for the week grid header. */
@@ -640,6 +718,18 @@ const STYLES = `
     z-index: 20;
   }
   .toast.info { background: var(--primary-color); }
+  .late { color: var(--warning-color, #ffa600); margin-left: 6px; font-size: 0.9em; }
+  .filters { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .filters select {
+    font: inherit;
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--divider-color);
+    background: var(--primary-background-color);
+    color: var(--primary-text-color);
+  }
+  .filters .check { display: flex; align-items: center; gap: 6px; }
+  .filters .grow { flex: 1; }
 `;
 
 // --- the panel element ---------------------------------------------------------
@@ -662,6 +752,7 @@ export class ChoresPanel extends Base {
     this._payoutWeek = null; // null = current week
     this._admin = null;
     this._log = null;
+    this._logFilter = { kidId: null, group: "all", late: false, week: null };
     this._dialog = null; // {text, onYes}
     this._sheet = null; // {title, items: [{label, run}]}
     this._form = null; // {title, fields, values, onSave, onDelete}
@@ -708,6 +799,7 @@ export class ChoresPanel extends Base {
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
       this.shadowRoot.addEventListener("click", (ev) => this._onClick(ev));
+      this.shadowRoot.addEventListener("change", (ev) => this._onChange(ev));
     }
     for (const type of ["pointerdown", "keydown"]) {
       window.addEventListener(type, this._onActivity, { capture: true });
@@ -801,7 +893,14 @@ export class ChoresPanel extends Base {
     const week = this._payoutWeek ? { week: this._payoutWeek } : {};
     this._payouts = await this._pws("parent/payouts", week);
     if (this._tab === "admin") this._admin = await this._pws("admin/list");
-    if (this._tab === "log") this._log = (await this._pws("parent/audit", { limit: 200 })).entries;
+    if (this._tab === "log") {
+      const f = this._logFilter;
+      const query = { limit: 200, late_only: f.late };
+      if (LOG_GROUPS[f.group]) query.actions = LOG_GROUPS[f.group];
+      if (f.kidId) query.kid_id = f.kidId;
+      if (f.week) query.week = f.week;
+      this._log = (await this._pws("parent/audit", query)).entries;
+    }
   }
 
   async _goDay(day) {
@@ -906,7 +1005,20 @@ export class ChoresPanel extends Base {
         this._view = { name: "overview" };
         this._week = null;
       },
-      toggle: () => this._toggle(id, el.dataset.confirm === "1"),
+      toggle: () => this._toggle(id, el.dataset.confirm === "1", el.dataset.day),
+      details: () => {
+        this._logFilter = {
+          kidId: Number(el.dataset.kid),
+          group: "review",
+          late: false,
+          week: this._payouts?.week ?? null,
+        };
+        this._openTab("log");
+      },
+      "log-week": () => {
+        this._logFilter.week = el.dataset.week || null;
+        this._reload();
+      },
       more: () => this._openSheet(id, el.dataset.day),
       "dialog-yes": () => {
         const { onYes } = this._dialog;
@@ -971,10 +1083,27 @@ export class ChoresPanel extends Base {
     this._render();
   }
 
-  _toggle(id, alwaysConfirm) {
-    const inst = this._findInstance(id);
-    if (!inst) return;
+  _onChange(ev) {
+    const el = ev.composedPath().find((n) => n.dataset?.filter);
+    if (!el) return;
+    const f = this._logFilter;
+    if (el.dataset.filter === "kid") f.kidId = el.value ? Number(el.value) : null;
+    if (el.dataset.filter === "group") f.group = el.value;
+    if (el.dataset.filter === "late") f.late = el.checked;
+    this._reload();
+  }
+
+  _toggle(id, alwaysConfirm, day) {
+    const inst = this._findInstance(id) ?? this._weekInstance(id, day);
+    if (!inst || !kidTap(inst, this._state.today)) return;
     const done = inst.status !== "done";
+    if (inst.day !== this._state.today) {
+      // A past day: always confirm, and say which day (D8).
+      const key = done ? "confirm_check_day" : "confirm_uncheck_day";
+      const vars = { name: inst.name, day: shortDay(inst.day, this._lang) };
+      this._dialog = { text: t(this._lang, key, vars), onYes: () => this._setDone(inst, done) };
+      return;
+    }
     if (done && !alwaysConfirm) {
       this._setDone(inst, true);
       return;
@@ -1450,16 +1579,19 @@ export class ChoresPanel extends Base {
   }
 
   _choreRow(inst) {
-    // Kids can only change today (D8); other days are read-only. Parents get a ⋯ menu.
-    const isToday = this._state.day === this._state.today;
-    const tappable = isToday && inst.id && (inst.status === "done" || inst.status === "pending");
+    // Kids can tick or untick any day of the open week (D8); future days are a preview.
+    // Parents also get a ⋯ menu and see ⚠ on ticks made after the chore's day.
+    const open = this._state.week_status === "open";
+    const tappable = open && kidTap(inst, this._state.today) !== null;
+    const late =
+      this._parent && inst.late ? `<span class="late" title="${t(this._lang, "late_hint")}">⚠</span>` : "";
     const more =
       this._parent && parentActions(inst, this._state.today).length
         ? `<button class="more" data-action="more" data-id="${inst.id}">⋯</button>`
         : "";
     return `<div class="row"><button class="chore ${inst.status}" data-action="toggle" data-id="${inst.id}"
       ${tappable ? "" : "disabled"}><span class="box">${inst.status === "pending" ? "" : cellSymbol(inst.status)}</span>
-      <span>${escapeHtml(inst.name)}</span></button>${more}</div>`;
+      <span>${escapeHtml(inst.name)}</span>${late}</button>${more}</div>`;
   }
 
   _meters(balances) {
@@ -1496,19 +1628,30 @@ export class ChoresPanel extends Base {
           .map((d) => {
             const status = r.cells[d];
             const cls = `cell ${status ?? ""} ${d === today ? "today" : ""}`;
+            const id = r.ids?.[d];
+            const open = w.week_status === "open";
+            const late = this._parent && r.late?.[d] ? `<sup class="late">⚠</sup>` : "";
             const inst = d === today ? todayByChore.get(r.chore_id) : null;
-            if (inst && (inst.status === "pending" || inst.status === "done")) {
+            if (inst && open && kidTap(inst, today)) {
               return `<td class="${cls}"><button data-action="toggle" data-confirm="1" data-id="${inst.id}">${cellSymbol(
                 inst.status,
-              )}</button></td>`;
+              )}${late}</button></td>`;
             }
-            const id = r.ids?.[d];
-            if (this._parent && id && d < today && w.week_status === "open") {
-              return `<td class="${cls}"><button data-action="more" data-id="${id}" data-day="${d}">${cellSymbol(
-                status,
-              )}</button></td>`;
+            if (id && d < today && open) {
+              // Parents get the ⋯ menu; kids may fix a forgotten tick (D8).
+              const past = { id, day: d, status, type: r.type };
+              if (this._parent) {
+                return `<td class="${cls}"><button data-action="more" data-id="${id}" data-day="${d}">${cellSymbol(
+                  status,
+                )}${late}</button></td>`;
+              }
+              if (kidTap(past, today)) {
+                return `<td class="${cls}"><button data-action="toggle" data-id="${id}" data-day="${d}">${cellSymbol(
+                  status,
+                )}</button></td>`;
+              }
             }
-            return `<td class="${cls}">${status ? cellSymbol(status) : ""}</td>`;
+            return `<td class="${cls}">${status ? cellSymbol(status) : ""}${late}</td>`;
           })
           .join("");
         const label = r.type === "bonus" ? `${t(L, "bonus")}: ${escapeHtml(r.name)}` : escapeHtml(r.name);
@@ -1559,8 +1702,12 @@ export class ChoresPanel extends Base {
             const btn = i.paid
               ? `<button class="small-btn" data-action="pay" data-kid="${i.kid_id}" data-currency="${c.id}" data-paid="0">${t(L, "undo")}</button>`
               : `<button class="primary-btn" data-action="pay" data-kid="${i.kid_id}" data-currency="${c.id}" data-paid="1">${t(L, "mark_paid")}</button>`;
+            const details = `<button class="small-btn" data-action="details" data-kid="${i.kid_id}">${t(
+              L,
+              "details",
+            )}</button>`;
             return `<tr><td>${kidName(i.kid_id)}</td><td class="num">${i.amount_due} ${escapeHtml(c.unit)}</td>
-              <td>${paid}</td><td class="actions">${btn}</td></tr>`;
+              <td>${paid}</td><td class="actions">${details} ${btn}</td></tr>`;
           })
           .join("");
         return `<div class="card"><h2><ha-icon icon="${escapeHtml(c.icon || "mdi:star")}"></ha-icon>
@@ -1631,26 +1778,63 @@ export class ChoresPanel extends Base {
 
   _renderLog() {
     const L = this._lang;
-    if (!this._log) return `<p class="empty">${t(L, "loading")}</p>`;
-    if (!this._log.length) return `<p class="empty">${t(L, "log_empty")}</p>`;
+    const s = this._state;
+    const f = this._logFilter;
+    const kidName = (id) => escapeHtml(s.kids.find((k) => k.id === id)?.name ?? "");
+    const kidOpts = [`<option value="">${t(L, "log_all_kids")}</option>`]
+      .concat(
+        s.kids.map(
+          (k) => `<option value="${k.id}" ${f.kidId === k.id ? "selected" : ""}>${escapeHtml(k.name)}</option>`,
+        ),
+      )
+      .join("");
+    const groupOpts = Object.keys(LOG_GROUPS)
+      .map((g) => `<option value="${g}" ${f.group === g ? "selected" : ""}>${t(L, `g_${g}`)}</option>`)
+      .join("");
+    const weekLabel = f.week ? t(L, "week", { n: isoWeek(f.week) }) : t(L, "log_all_weeks");
+    const current = mondayOf(s.today);
+    const prev = addDays(f.week ?? addDays(current, 7), -7);
+    const next = f.week && f.week < current ? addDays(f.week, 7) : null;
+    const filters = `<div class="card filters">
+      <select data-filter="kid">${kidOpts}</select>
+      <select data-filter="group">${groupOpts}</select>
+      <label class="check"><input type="checkbox" data-filter="late" ${f.late ? "checked" : ""}> ${t(
+        L,
+        "log_late_only",
+      )}</label>
+      <span class="grow"></span>
+      <button class="nav" data-action="log-week" data-week="${prev}">‹</button>
+      <span>${weekLabel}</span>
+      <button class="nav" data-action="log-week" data-week="${next ?? ""}" ${f.week ? "" : "disabled"}>›</button>
+    </div>`;
+    if (!this._log) return `${filters}<p class="empty">${t(L, "loading")}</p>`;
+    if (!this._log.length) return `${filters}<p class="empty">${t(L, "log_empty")}</p>`;
     const rows = this._log
       .map((e) => {
-        let detail = "";
+        let after = null;
         try {
-          const after = e.after ? JSON.parse(e.after) : null;
-          if (after?.status) detail = after.status;
-          else if (after?.name) detail = after.name;
-          else if (after?.amount !== undefined && after?.amount !== null) detail = String(after.amount);
+          after = e.after ? JSON.parse(e.after) : null;
         } catch {
-          detail = "";
+          after = null;
         }
-        const who = e.user_id === "system" ? "system" : "";
-        return `<tr><td class="muted">${escapeHtml(formatTimestamp(e.ts, L))}</td>
-          <td>${escapeHtml(t(L, `a_${e.action}`))}</td><td>${escapeHtml(detail)}</td>
-          <td>${escapeHtml(e.note ?? "")}</td><td class="muted">${who}</td></tr>`;
+        let what = "";
+        if (after?.chore) what = `${after.chore} → ${t(L, `act_${after.status}`)}`;
+        else if (after?.name) what = after.name;
+        else if (after?.amount !== undefined && after?.amount !== null) what = String(after.amount);
+        if (e.action === "check" || e.action === "uncheck") what = after?.chore ?? "";
+        const day = e.day && e.entity === "instance" ? shortDay(e.day, L) : "";
+        const late = e.late ? `<span class="late" title="${t(L, "late_hint")}">⚠</span>` : "";
+        return `<tr class="${e.late ? "late-row" : ""}"><td class="muted">${escapeHtml(formatTimestamp(e.ts, L))}</td>
+          <td>${kidName(e.kid_id)}</td><td>${escapeHtml(t(L, `a_${e.action}`))}</td>
+          <td>${escapeHtml(what)}</td><td>${escapeHtml(day)} ${late}</td>
+          <td class="muted">${escapeHtml(e.note ?? "")}</td></tr>`;
       })
       .join("");
-    return `<div class="card"><table class="list">${rows}</table></div>`;
+    const head = `<tr class="muted"><th>${t(L, "log_when")}</th><th>${t(L, "kids")}</th><th>${t(
+      L,
+      "log_event",
+    )}</th><th>${t(L, "log_what")}</th><th>${t(L, "log_day")}</th><th>${t(L, "note")}</th></tr>`;
+    return `${filters}<div class="card"><table class="list">${head}${rows}</table></div>`;
   }
 
   _renderForm() {

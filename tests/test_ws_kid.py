@@ -112,24 +112,53 @@ async def test_bonus_earns_and_cap_applies(ws):
     assert bal[MONEY]["total"] == 60
 
 
-async def test_midnight_loss_and_past_undo_refused(hass, ws, freezer):
-    """AC-3.2, AC-5.3, AC-6.2."""
+async def test_midnight_loss_then_kid_fixes_yesterday(hass, ws, freezer):
+    """AC-3.2, AC-5.3; D8: a kid can fix a forgotten tick later in the week, audited as late."""
     ada = await _family(ws)
     kid = (await _board(ws))["board"][str(ada)]
     bed, dishes = kid["chores"]
     await ok(ws, "set_done", instance_id=dishes["id"], done=True)
 
-    freezer.move_to(datetime(2026, 10, 13, 0, 0, 0, tzinfo=OSLO))
+    freezer.move_to(datetime(2026, 10, 13, 18, 0, 0, tzinfo=OSLO))
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
 
-    assert await err(ws, "set_done", instance_id=dishes["id"], done=False) == "not_today"
-    assert await err(ws, "set_done", instance_id=bed["id"], done=True) == "not_today"
     state = await _board(ws)
     assert state["today"] == "2026-10-13"
     bal = state["board"][str(ada)]["balances"]
     assert (bal[SCREEN]["earned"], bal[SCREEN]["lost"], bal[SCREEN]["total"]) == (30, 10, 20)
     assert bal[MONEY]["lost"] == 0  # allowance can't be lost (AC-3.3)
+
+    # Forgotten bed on Monday: ticked on Tuesday → done, flagged late.
+    res = await ok(ws, "set_done", instance_id=bed["id"], done=True)
+    assert res["instance"]["status"] == "done" and res["instance"]["late"]
+    # Unticking a past chore makes it missed again, not pending.
+    res = await ok(ws, "set_done", instance_id=dishes["id"], done=False)
+    assert res["instance"]["status"] == "missed"
+    bal = (await _board(ws))["board"][str(ada)]["balances"][SCREEN]
+    assert (bal["earned"], bal["lost"]) == (10, 30)
+
+    store = ws.entry.runtime_data
+    log = await store.async_read(lambda r: r.list_audit())
+    taps = [(e["action"], e["day"], e["late"], e["kid_id"]) for e in log[:3]]
+    assert taps == [
+        ("uncheck", "2026-10-12", True, ada),
+        ("check", "2026-10-12", True, ada),
+        ("check", "2026-10-12", False, ada),
+    ]
+    assert '"chore": "Re opp sengen"' in log[1]["after"]
+
+
+async def test_kid_cannot_touch_last_week_or_parent_decisions(hass, ws, freezer):
+    ada = await _family(ws)
+    dishes = (await _board(ws))["board"][str(ada)]["chores"][1]
+    token = await unlock(ws)
+    await ok(ws, "parent/set_status", token=token, instance_id=dishes["id"], status="excused")
+    assert await err(ws, "set_done", instance_id=dishes["id"], done=True) == "not_allowed"
+    freezer.move_to(datetime(2026, 10, 19, 9, 0, 0, tzinfo=OSLO))  # next Monday
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert await err(ws, "set_done", instance_id=dishes["id"], done=True) == "week_closed"
 
 
 async def test_get_week_grid(hass, ws, freezer):

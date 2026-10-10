@@ -210,20 +210,13 @@ def board(repo: Repo, day: date, today: date) -> dict[int, KidBoard]:
 
 
 def week_grid(repo: Repo, kid_id: int, week: date) -> list[dict]:
-    """One row per chore seen that week, with a status cell per day (AC-8.3)."""
+    """One row per chore seen that week, with the instance per day (AC-8.3)."""
     rows: dict[int, dict] = {}
     for inst in sorted(repo.list_instances(week=week, kid_id=kid_id), key=_sort_key):
         row = rows.setdefault(
             inst.chore_id,
-            {
-                "chore_id": inst.chore_id,
-                "type": inst.type,
-                "slot": inst.slot,
-                "cells": {},
-                "ids": {},
-            },
+            {"chore_id": inst.chore_id, "type": inst.type, "slot": inst.slot, "days": {}},
         )
         row["name"] = inst.name  # latest snapshot wins
-        row["cells"][inst.day] = inst.status
-        row["ids"][inst.day] = inst.id
+        row["days"][inst.day] = inst
     return list(rows.values())

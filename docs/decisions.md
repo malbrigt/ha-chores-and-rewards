@@ -11,7 +11,7 @@ These fill gaps in the spec. A ✔ means the owner confirmed it.
 | D5 | Balance | `min(earned, cap) − lost (only if the currency can be lost) + adjustments`, clamped at ≥0 once on the total. Recomputed from rows, never stored. |
 | D6 | Instances | One row per kid × chore × day, created eagerly at rollover, startup and catch-up. Idempotent through UNIQUE. Name and values are snapshotted onto the row. |
 | D7 | States | `pending → done / missed / excused / rejected`. Excused earns 0 and loses 0. Rejected counts as missed. Pending rows for today re-sync when their chore is edited. |
-| D8 | Edit rights | A kid can undo only today. A parent with the PIN can edit any day in the open week. |
+| D8 ✔ | Edit rights | Revised in step 11. Kids can tick or untick any day of the open week (forgotten ticks happen); unticking a past expected chore makes it missed again. Excused and rejected are parent-only. Parents with the PIN can do everything on any day of the open week. |
 | D9 | Bonus | At most once per scheduled day, never missed. |
 | D10 | Anytime slot | A third group after afternoon. |
 | D11 | Payout amount | The balance at the moment the payout is ticked. Anything earned later shows as "after payout". |
@@ -32,7 +32,7 @@ These fill gaps in the spec. A ✔ means the owner confirmed it.
 | D26 | PIN sessions | Live in `sessions.py`, a pure class with an injectable clock. Tokens are in memory only, so an HA restart locks the panel. Failures are counted globally (one shared PIN, one screen). |
 | D27 | WS field names | Never `id` or `type` in requests, since they clash with HA's message envelope. Use `kid_id`, `chore_id`, `currency_id`, `chore_type`. |
 | D28 | WS registration | Commands are registered once in `async_setup` (HA can't unregister them). They answer `not_loaded` when no entry is loaded. |
-| D29 | Kid taps | Not written to the audit log (only PIN and admin actions are, per §7). The row still records `status_by="kid"` and `status_at`. |
+| D29 ✔ | Kid taps | Revised in step 11. Every kid tap is audited (`check`/`uncheck`) with kid, the chore's day and a late flag. |
 | D30 | Live updates | Events carry no data, just "something changed". The panel re-reads `get_state`. Simple, and the payload is small for one family. |
 | D31 | Early close | Closing the week early freezes it: no kid or parent status changes, no adjustments, no new rows, and no midnight losses for the rest of that week. `parent/reopen_week` undoes it; days skipped while frozen stay as they were. |
 | D32 | Late payout | Payouts can be ticked or unticked for any week, including closed ones, because parents forget. Adjustments and status changes only work in an open week. |
@@ -46,3 +46,5 @@ These fill gaps in the spec. A ✔ means the owner confirmed it.
 | D40 ✔ | PIN lockout | Escalating: 5 wrong PINs → 60 s, then 5 min, then 30 min. Reset by a correct PIN or by a PIN change in the options flow, which also ends all parent sessions. |
 | D41 | Sensors | `sensor.<kid>_<currency>` holds this week's balance total, with `state_class: measurement`. Attributes: earned, lost, adjustments, cap, week. A coordinator without polling refreshes on the update signal. Sensors are added for new kid × currency pairs and removed from the registry when the kid or currency is deleted or deactivated. The name is fixed at creation, so the entity_id stays stable if a kid is renamed. |
 | D42 | E2E scope | Playwright runs against a throwaway HA (port 8124, own compose project). It covers taps, live sync between two tablets, the PIN, payouts and admin. Midnight rollover can't be time-travelled in real HA and is covered by the pytest `freezer` tests. |
+| D43 ✔ | Late ticks | A change is "late" when made on a later local day than the chore's own day. Stored on the audit row and returned per instance (`late`). Shown as ⚠ only in parent mode, so kids don't feel watched. Late ticks earn full value (warn, don't block). |
+| D44 ✔ | Review | No separate receipt. "Detaljer" on a payout row opens the audit log pre-filtered (kid, week, review actions). The log has filters for kid, action group, late only and week. Schema v2 adds `kid_id`, `day` and `late` columns to `audit_log`, with a backfill. |

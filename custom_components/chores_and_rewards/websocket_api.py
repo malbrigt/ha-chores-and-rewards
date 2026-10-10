@@ -16,6 +16,7 @@ import probatio as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
+from homeassistant.util import dt as dt_util
 
 from .const import CONF_PIN_HASH, DOMAIN, EVENT_UPDATED
 from .db import Repo
@@ -31,9 +32,11 @@ from .logic import (
     RuleError,
     Slot,
     Status,
+    is_late,
     is_payout_day,
     payout_warnings,
     transition,
+    undo_status,
     verify_pin,
     week_days,
     week_start,
@@ -203,7 +206,16 @@ def instance_dict(i: Instance) -> dict[str, Any]:
         "values": {str(k): v for k, v in i.values.items()},
         "status": i.status.value,
         "status_at": i.status_at,
+        "late": _ticked_late(i),
     }
+
+
+def _ticked_late(i: Instance) -> bool:
+    """Done, and ticked on a later (local) day than the chore's own day (D43)."""
+    if i.status is not Status.DONE or not i.status_at:
+        return False
+    changed = dt_util.parse_datetime(i.status_at)
+    return changed is not None and is_late(i.day, dt_util.as_local(changed).date())
 
 
 def balance_dict(b: Balance) -> dict[str, Any]:
@@ -293,8 +305,9 @@ async def ws_get_week(hass, connection, msg, store: ChoresStore) -> dict[str, An
                     "name": r["name"],
                     "type": r["type"].value,
                     "slot": r["slot"].value,
-                    "cells": {d.isoformat(): st.value for d, st in r["cells"].items()},
-                    "ids": {d.isoformat(): i for d, i in r["ids"].items()},
+                    "cells": {d.isoformat(): i.status.value for d, i in r["days"].items()},
+                    "ids": {d.isoformat(): i.id for d, i in r["days"].items()},
+                    "late": {d.isoformat(): _ticked_late(i) for d, i in r["days"].items()},
                 }
                 for r in rows
             ],
@@ -313,21 +326,40 @@ async def ws_get_week(hass, connection, msg, store: ChoresStore) -> dict[str, An
     parent=False,
 )
 async def ws_set_done(hass, connection, msg, store: ChoresStore) -> dict[str, Any]:
-    """Kid tap: done or undo, today only, no approval (AC-6.1, AC-6.2)."""
+    """Kid tap: tick or untick any day of the open week, no approval (AC-6.1, AC-6.2, D8).
+
+    Every tap is audited with the chore's day, so late ticks can be reviewed (D43).
+    """
     await store.async_ensure_current()
-    today = store.today()
-    target = Status.DONE if msg["done"] else Status.PENDING
+    user, today = _user(connection), store.today()
 
     def write(repo: Repo) -> Instance:
         inst = _require(repo.get_instance(msg["instance_id"]))
-        if repo.week_status(week_start(inst.day)) != "open":
-            raise RuleError("week_closed")
+        _open_week(repo, week_start(inst.day))
+        target = Status.DONE if msg["done"] else undo_status(inst, today)
         new = transition(inst, target, Actor.KID, today)
         assert new.id is not None
         repo.set_status(new.id, new.status, by="kid")
+        _audit_status(repo, "check" if msg["done"] else "uncheck", user, inst, new, today)
         return _require(repo.get_instance(new.id))
 
     return {"instance": instance_dict(await store.async_write(write))}
+
+
+def _audit_status(
+    repo: Repo, action: str, user: str | None, old: Instance, new: Instance, today: date
+) -> None:
+    repo.audit(
+        action,
+        user_id=user,
+        entity="instance",
+        entity_id=new.id,
+        before={"status": old.status.value},
+        after={"status": new.status.value, "chore": new.name},
+        kid_id=new.kid_id,
+        day=new.day,
+        late=is_late(new.day, today),
+    )
 
 
 # --- PIN ----------------------------------------------------------------------
@@ -411,6 +443,7 @@ async def ws_kid_save(hass, connection, msg, store: ChoresStore) -> dict[str, An
             entity_id=kid_id,
             before=before_dict,
             after=after,
+            kid_id=kid_id,
         )
         refresh_today_for_kid(repo, kid_id, today)
         return kid_id
@@ -425,7 +458,14 @@ async def ws_kid_delete(hass, connection, msg, store: ChoresStore) -> dict[str, 
     def write(repo: Repo) -> None:
         kid = _require(repo.get_kid(msg["kid_id"]))
         repo.delete_kid(kid.id)
-        repo.audit("kid_delete", user_id=user, entity="kid", entity_id=kid.id, before=kid_dict(kid))
+        repo.audit(
+            "kid_delete",
+            user_id=user,
+            entity="kid",
+            entity_id=kid.id,
+            before=kid_dict(kid),
+            kid_id=kid.id,
+        )
         refresh_today_for_kid(repo, kid.id, today)
 
     await store.async_write(write)
@@ -641,14 +681,7 @@ async def ws_parent_set_status(hass, connection, msg, store: ChoresStore) -> dic
         new = transition(inst, Status(msg["status"]), Actor.PARENT, today)
         assert new.id is not None
         repo.set_status(new.id, new.status, by=user)
-        repo.audit(
-            "set_status",
-            user_id=user,
-            entity="instance",
-            entity_id=new.id,
-            before={"status": inst.status.value},
-            after={"status": new.status.value},
-        )
+        _audit_status(repo, "set_status", user, inst, new, today)
         return _require(repo.get_instance(new.id))
 
     return {"instance": instance_dict(await store.async_write(write))}
@@ -665,7 +698,8 @@ async def ws_parent_set_status(hass, connection, msg, store: ChoresStore) -> dic
 )
 async def ws_parent_adjust(hass, connection, msg, store: ChoresStore) -> dict[str, Any]:
     """Adjust this week's balance with a required note (AC-7.6)."""
-    user, week = _user(connection), week_start(store.today())
+    user, today = _user(connection), store.today()
+    week = week_start(today)
 
     def write(repo: Repo) -> int:
         _require(repo.get_kid(msg["kid_id"]))
@@ -681,6 +715,8 @@ async def ws_parent_adjust(hass, connection, msg, store: ChoresStore) -> dict[st
             entity_id=msg["kid_id"],
             after={"currency_id": msg["currency_id"], "amount": msg["amount"]},
             note=msg["note"],
+            kid_id=msg["kid_id"],
+            day=today,
         )
         return adj_id
 
@@ -756,6 +792,8 @@ async def ws_parent_payout(hass, connection, msg, store: ChoresStore) -> dict[st
             entity="kid",
             entity_id=kid_id,
             after={"week": week.isoformat(), "currency_id": currency_id, "amount": amount},
+            kid_id=kid_id,
+            day=week,
         )
         return {"amount": amount}
 
@@ -770,7 +808,9 @@ async def ws_parent_close_week(hass, connection, msg, store: ChoresStore) -> dic
     def write(repo: Repo) -> None:
         _open_week(repo, week)
         repo.close_week(week, by=user)
-        repo.audit("close_week", user_id=user, entity="week", entity_id=week, note="manual")
+        repo.audit(
+            "close_week", user_id=user, entity="week", entity_id=week, note="manual", day=week
+        )
 
     await store.async_write(write)
     return {}
@@ -786,7 +826,7 @@ async def ws_parent_reopen_week(hass, connection, msg, store: ChoresStore) -> di
         if repo.week_status(week) != "closed":
             raise RuleError("not_allowed")
         repo.reopen_week(week)
-        repo.audit("reopen_week", user_id=user, entity="week", entity_id=week)
+        repo.audit("reopen_week", user_id=user, entity="week", entity_id=week, day=week)
         ensure_today(repo, today)
 
     await store.async_write(write)
@@ -797,7 +837,23 @@ async def ws_parent_reopen_week(hass, connection, msg, store: ChoresStore) -> di
     {
         vol.Required("type"): P + "parent/audit",
         vol.Optional("limit", default=100): vol.All(int, vol.Range(min=1, max=1000)),
+        vol.Optional("actions"): [str],
+        vol.Optional("kid_id"): int,
+        vol.Optional("week"): cv.date,
+        vol.Optional("late_only", default=False): bool,
     }
 )
 async def ws_parent_audit(hass, connection, msg, store: ChoresStore) -> dict[str, Any]:
-    return {"entries": await store.async_read(lambda repo: repo.list_audit(msg["limit"]))}
+    """Audit log, newest first, optionally filtered (D44). `week`: any date in that week."""
+    week = week_start(msg["week"]) if "week" in msg else None
+
+    def read(repo: Repo) -> list[dict[str, Any]]:
+        return repo.list_audit(
+            msg["limit"],
+            actions=msg.get("actions"),
+            kid_id=msg.get("kid_id"),
+            week=week,
+            late_only=msg["late_only"],
+        )
+
+    return {"entries": await store.async_read(read)}

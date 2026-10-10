@@ -237,27 +237,40 @@ def finalize(inst: Instance) -> Instance:
     return inst
 
 
+def undo_status(inst: Instance, today: date) -> Status:
+    """What a done chore becomes when unticked: open today (or bonus), else missed again."""
+    if inst.day == today or inst.type is ChoreType.BONUS:
+        return Status.PENDING
+    return Status.MISSED
+
+
+def is_late(day: date, changed_on: date) -> bool:
+    """A change made after the chore's own day, e.g. a forgotten tick fixed later (D43)."""
+    return changed_on > day
+
+
 def transition(
     inst: Instance, target: Status, actor: Actor, today: date, open_week: date | None = None
 ) -> Instance:
     """Apply a status change if the rules allow it, else raise RuleError.
 
-    Kids: done/undo, today only (AC-6.1, AC-6.2).
-    Parents: any day up to today in the open week (D8); reject only a completion (AC-7.4).
+    Both kids and parents: any day up to today in the open week (D8).
+    Kids: tick (pending/missed → done) or untick (done → undo_status) (AC-6.1, AC-6.2).
+    Parents: also excuse, reject a completion (AC-7.4), reset today or mark a past day missed.
     """
     if inst.day > today:
         raise RuleError("future_day")
-    if actor is Actor.KID:
-        if inst.day != today:
-            raise RuleError("not_today")
-        allowed = {Status.PENDING: {Status.DONE}, Status.DONE: {Status.PENDING}}
-        if target not in allowed.get(inst.status, set()):
-            raise RuleError("not_allowed")
-        return replace(inst, status=target)
-
     week = open_week if open_week is not None else week_start(today)
     if week_start(inst.day) != week:
         raise RuleError("week_closed")
+
+    if actor is Actor.KID:
+        tick = target is Status.DONE and inst.status in (Status.PENDING, Status.MISSED)
+        untick = inst.status is Status.DONE and target is undo_status(inst, today)
+        if not (tick or untick):
+            raise RuleError("not_allowed")
+        return replace(inst, status=target)
+
     if target is Status.REJECTED and inst.status is not Status.DONE:
         raise RuleError("not_done")
     if target is Status.PENDING and inst.day != today:

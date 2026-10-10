@@ -335,3 +335,50 @@ def test_insert_instances_derives_week_per_day(db):
     db.run(lambda r: r.insert_instances(rows))
     assert db.run(lambda r: r.open_weeks()) == [MON, mon]
     assert len(db.run(lambda r: r.list_instances(week=mon))) == 1
+
+
+def test_upgrade_v1_to_v2_backfills_audit(tmp_path, monkeypatch):
+    """A real upgrade: v1 data with old-style audit rows gets kid/day backfilled."""
+    path = tmp_path / "chores.db"
+    with monkeypatch.context() as m:
+        m.setattr(dbmod, "MIGRATIONS", dbmod.MIGRATIONS[:1])
+        m.setattr(dbmod, "SCHEMA_VERSION", 1)
+        Database(path).migrate()
+    old = Database(path)
+    ada = old.run(lambda r: r.add_kid("Ada"))
+    cid = old.run(lambda r: r.add_chore(_chore({ada})))
+    old.run(lambda r: r.insert_instances(instances_for_day(r.list_chores(), [ada], MON)))
+    inst_id = old.run(lambda r: r.list_instances()[0].id)
+    with closing(sqlite3.connect(path)) as conn, conn:
+        conn.execute(
+            "INSERT INTO audit_log (ts, user_id, action, entity, entity_id) VALUES"
+            " ('t', 'u', 'kid_save', 'kid', ?), ('t', 'u', 'set_status', 'instance', ?),"
+            " ('t', 'u', 'settings_save', 'settings', NULL)",
+            [str(ada), str(inst_id)],
+        )
+    assert cid
+
+    assert Database(path).migrate() == SCHEMA_VERSION
+    assert (tmp_path / "chores.db.bak-v1").exists()
+    log = {e["action"]: e for e in Database(path).run(lambda r: r.list_audit())}
+    assert log["kid_save"]["kid_id"] == ada and log["kid_save"]["day"] is None
+    assert (log["set_status"]["kid_id"], log["set_status"]["day"]) == (ada, "2026-10-05")
+    assert log["settings_save"]["kid_id"] is None and log["settings_save"]["late"] is False
+
+
+def test_audit_filters(db):
+    """D44: filter by action, kid, week (chore's day) and late."""
+    tue = date(2026, 10, 6)
+    db.run(lambda r: r.audit("check", user_id="u", kid_id=1, day=MON, late=False))
+    db.run(lambda r: r.audit("check", user_id="u", kid_id=1, day=MON, late=True))
+    db.run(lambda r: r.audit("uncheck", user_id="u", kid_id=2, day=tue))
+    db.run(lambda r: r.audit("check", user_id="u", kid_id=1, day=date(2026, 9, 28)))
+    db.run(lambda r: r.audit("settings_save", user_id="u"))
+    count = lambda **kw: len(db.run(lambda r: r.list_audit(**kw)))  # noqa: E731
+    assert count() == 5
+    assert count(actions=["check"]) == 3
+    assert count(actions=[]) == 0
+    assert count(kid_id=1) == 3
+    assert count(week=MON) == 3
+    assert count(week=MON, kid_id=1, late_only=True) == 1
+    assert db.run(lambda r: r.list_audit(late_only=True))[0]["late"] is True

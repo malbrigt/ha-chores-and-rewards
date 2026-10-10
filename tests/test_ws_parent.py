@@ -68,11 +68,10 @@ async def test_excused_and_refusals(ws):
 
 
 async def test_parent_fixes_yesterday(hass, ws, freezer):
-    """D8: parent can mark a past day done; kid can't."""
+    """D8: parent can mark a past day done (kids can too, see test_ws_kid)."""
     token, ada, dishes = await _setup(ws)
     await _midnight(hass, freezer, 13)
     assert (await _balance(ws, ada))["lost"] == 30
-    assert await err(ws, "set_done", instance_id=dishes["id"], done=True) == "not_today"
     token = await unlock(ws)  # the fake clock moved past the session timeout
     await ok(ws, "parent/set_status", token=token, instance_id=dishes["id"], status="done")
     bal = await _balance(ws, ada)
@@ -177,3 +176,26 @@ async def test_auto_close_audit_and_limit(hass, ws, freezer):
     entries = (await ok(ws, "parent/audit", token=token))["entries"]
     assert [e["action"] for e in entries] == ["chore_save", "kid_save"]
     assert await err(ws, "parent/audit", token=token, limit=0) == "invalid_format"
+
+
+async def test_audit_filters_for_review(ws):
+    """D44: payout "details" = audit filtered by kid, week, actions."""
+    token, ada, dishes = await _setup(ws)
+    bo = (await ok(ws, "admin/kid/save", token=token, name="Bo"))["id"]
+    await ok(ws, "set_done", instance_id=dishes["id"], done=True)
+    await ok(ws, "parent/adjust", token=token, kid_id=ada, currency_id=1, amount=5, note="x")
+    await ok(ws, "parent/payout", token=token, kid_id=ada, currency_id=1, paid=True)
+
+    async def actions(**kw):
+        entries = (await ok(ws, "parent/audit", token=token, **kw))["entries"]
+        return [e["action"] for e in entries]
+
+    review = ["check", "uncheck", "set_status", "adjust", "payout", "payout_undo"]
+    assert await actions(kid_id=ada, week="2026-10-14", actions=review) == [
+        "payout",
+        "adjust",
+        "check",
+    ]
+    assert await actions(kid_id=bo) == ["kid_save"]
+    assert await actions(late_only=True) == []
+    assert await actions(week="2026-10-05") == []

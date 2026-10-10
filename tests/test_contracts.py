@@ -19,10 +19,12 @@ from custom_components.chores_and_rewards.logic import (
     Slot,
     Status,
     transition,
+    undo_status,
 )
 
 ROOT = Path(__file__).parent.parent
 FIXTURE = json.loads((ROOT / "tests/fixtures/parent_actions.json").read_text())
+KID_FIXTURE = json.loads((ROOT / "tests/fixtures/kid_actions.json").read_text())
 TODAY = date(2026, 10, 9)  # Friday, so "yesterday" is in the same week
 
 
@@ -52,6 +54,37 @@ def test_parent_actions_match_transition(case):
             continue
         allowed.append(target)
     assert allowed == case["actions"]
+
+
+def _allowed(inst: Instance, target: Status) -> bool:
+    try:
+        transition(inst, target, Actor.KID, TODAY)
+    except RuleError:
+        return False
+    return True
+
+
+@pytest.mark.parametrize(
+    "case", KID_FIXTURE["cases"], ids=lambda c: f"{c['type']}-{c['status']}-{c['day']}"
+)
+def test_kid_tap_matches_transition(case):
+    """panel.js kidTap is tested against the same fixture (tests/js)."""
+    inst = Instance(
+        kid_id=1,
+        chore_id=1,
+        day=TODAY + timedelta(days=case["day"]),
+        type=ChoreType(case["type"]),
+        slot=Slot.AFTERNOON,
+        name="x",
+        values={},
+        status=Status(case["status"]),
+        id=1,
+    )
+    if inst.status is Status.DONE:
+        tap = "untick" if _allowed(inst, undo_status(inst, TODAY)) else None
+    else:
+        tap = "tick" if _allowed(inst, Status.DONE) else None
+    assert tap == case["tap"]
 
 
 def _registered_types() -> set[str]:

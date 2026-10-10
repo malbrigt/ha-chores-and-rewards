@@ -1,0 +1,15 @@
+{
+  "_comment": "What a kid's tap does, shared by pytest (logic.transition) and node (panel.js kidTap). day: -1 = yesterday, 0 = today, 1 = tomorrow (same week). tap: tick | untick | null.",
+  "cases": [
+    {"type": "expected", "status": "pending", "day": 0, "tap": "tick"},
+    {"type": "expected", "status": "done", "day": 0, "tap": "untick"},
+    {"type": "expected", "status": "missed", "day": -1, "tap": "tick"},
+    {"type": "expected", "status": "done", "day": -1, "tap": "untick"},
+    {"type": "expected", "status": "excused", "day": -1, "tap": null},
+    {"type": "expected", "status": "rejected", "day": -1, "tap": null},
+    {"type": "expected", "status": "excused", "day": 0, "tap": null},
+    {"type": "bonus", "status": "pending", "day": -1, "tap": "tick"},
+    {"type": "bonus", "status": "done", "day": -1, "tap": "untick"},
+    {"type": "expected", "status": "pending", "day": 1, "tap": null}
+  ]
+}

@@ -23,7 +23,7 @@ IDs follow the spec sections. Tests reference these IDs.
 
 ## §6 Daily flow
 - AC-6.1 WHEN a kid taps a chore THEN it is done immediately (no approval) and progress updates live.
-- AC-6.2 WHEN a kid undoes a chore the same day THEN it returns to pending. WHEN they try on a past day THEN it is refused.
+- AC-6.2 WHEN a kid unticks a chore today THEN it returns to pending. WHEN they tick or untick a past day in the open week THEN it is allowed (untick → missed), audited and flagged late (D8, D43). WHEN the week is closed THEN it is refused.
 - AC-6.3 WHEN HA was off across midnight(s) THEN on startup each missed day is processed in order, exactly once.
 
 ## §7 PIN

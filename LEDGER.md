@@ -14,6 +14,7 @@ Each step records its status, what was built, how it was solved, any deviations,
 | 8 | Panel part 1 | ✅ |
 | 9 | Panel part 2 | ✅ |
 | 10 | Sensors and release | ✅ |
+| 11 | Kids fix past days, audited taps, log review | ✅ |
 
 ---
 
@@ -368,3 +369,30 @@ What we should have done from the start:
 **Tests:** 147 Python, 17 JS unit, 6 smoke and 1 E2E scenario (about 25 checks).
 
 **Release:** v0.1.0 tagged and published on GitHub (https://github.com/malbrigt/ha-chores-and-rewards/releases/tag/v0.1.0). CI fully green on c46186a, including E2E.
+
+---
+
+## Step 11: Kids fix past days, audited taps, log review ✅ (user request)
+**Why:** kids forget to tick, and having a parent fix it later becomes a chore. Possible foul play should be reviewable instead.
+
+**Built:**
+- **`logic.py`:** kids may tick or untick any day of the open week (`undo_status`, `is_late`). Excused and rejected stay parent-only.
+- **Schema v2:** the first real migration. It adds `kid_id`, `day` and `late` to `audit_log`, with a backfill and the backup-before-upgrade from step 3.
+- **API:**
+  - `set_done` audits every tap.
+  - `parent/set_status`, `adjust` and `payout` fill kid and day.
+  - `parent/audit` gets filters.
+  - Instances and week cells carry `late`.
+- **Panel:**
+  - kids can tap rows on past days and past week-grid cells, with a confirmation that names the day;
+  - ⚠ on late ticks (parent mode only);
+  - the log tab has filters (kid, group, late only, week) and column headers;
+  - "Detaljer" on payout rows opens the pre-filtered log.
+
+**How:**
+- The tap rules exist on both server and panel, so they share `tests/fixtures/kid_actions.json` (per the CLAUDE.md rule).
+- The user suggested a link from payouts to the filtered log instead of a separate receipt. I agreed: it reuses code, and the log already answers "which day, ticked when". The payout row already shows the total.
+
+**Decisions:** D8 and D29 revised, D43 and D44 added.
+
+**Tests:** 165 Python (migration upgrade, audit filters, kid past-day fixes and refusals, review filters), 19 JS unit, 8 smoke and E2E (now including Detaljer → log).

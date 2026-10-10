@@ -19,12 +19,14 @@ from custom_components.chores_and_rewards.logic import (
     finalize,
     group_by_slot,
     instances_for_day,
+    is_late,
     is_payout_day,
     is_scheduled,
     payout_warnings,
     resolve_cap,
     snapshot,
     transition,
+    undo_status,
     week_days,
     week_pot,
     week_start,
@@ -159,20 +161,39 @@ def test_kid_done_and_undo_today():
     assert transition(done, Status.PENDING, Actor.KID, today=MON).status is Status.PENDING
 
 
+def test_kid_fixes_past_days_in_open_week():
+    """D8 (revised): a forgotten tick can be fixed later in the week; untick → missed."""
+    missed = inst(status=Status.MISSED)  # Monday, today is Tuesday
+    done = transition(missed, Status.DONE, Actor.KID, today=TUE)
+    assert done.status is Status.DONE
+    assert transition(done, Status.MISSED, Actor.KID, today=TUE).status is Status.MISSED
+    bonus = inst(WINDOWS, day=date(2026, 10, 10), status=Status.DONE)
+    assert transition(bonus, Status.PENDING, Actor.KID, today=SUN).status is Status.PENDING
+
+
 @pytest.mark.parametrize(
     ("status", "target", "today", "code"),
     [
-        (Status.DONE, Status.PENDING, TUE, "not_today"),  # undo past day
-        (Status.PENDING, Status.DONE, TUE, "not_today"),
-        (Status.MISSED, Status.DONE, MON, "not_allowed"),
+        (Status.DONE, Status.PENDING, TUE, "not_allowed"),  # past untick goes to missed
+        (Status.DONE, Status.MISSED, MON, "not_allowed"),  # today's untick goes to pending
         (Status.PENDING, Status.EXCUSED, MON, "not_allowed"),
+        (Status.EXCUSED, Status.DONE, TUE, "not_allowed"),  # parent decided
+        (Status.REJECTED, Status.DONE, TUE, "not_allowed"),
         (Status.PENDING, Status.DONE, date(2026, 10, 4), "future_day"),
+        (Status.MISSED, Status.DONE, date(2026, 10, 12), "week_closed"),
     ],
 )
 def test_kid_refusals(status, target, today, code):
     with pytest.raises(RuleError) as err:
         transition(inst(status=status), target, Actor.KID, today=today)
     assert err.value.code == code
+
+
+def test_undo_status_and_is_late():
+    assert undo_status(inst(day=TUE), TUE) is Status.PENDING
+    assert undo_status(inst(), TUE) is Status.MISSED
+    assert undo_status(inst(WINDOWS), TUE) is Status.PENDING
+    assert is_late(MON, TUE) and not is_late(MON, MON)
 
 
 def test_parent_can_edit_past_days_in_open_week():

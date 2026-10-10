@@ -11,7 +11,7 @@ import json
 import sqlite3
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import closing, contextmanager
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -144,8 +144,22 @@ VALUES ('Skjermtid', 'min', 'mdi:tablet', 4, 1, 'fixed', 0),
        ('Ukepenger', 'kr', 'mdi:cash', 5, 0, 'pot', 1);
 """
 
+# v2: audit rows carry the kid, the chore's day and a late flag, so the log can be
+# filtered (D43, D44). Backfills kid/day for existing rows.
+_V2 = """
+ALTER TABLE audit_log ADD COLUMN kid_id INTEGER;
+ALTER TABLE audit_log ADD COLUMN day TEXT;
+ALTER TABLE audit_log ADD COLUMN late INTEGER NOT NULL DEFAULT 0;
+UPDATE audit_log SET kid_id = CAST(entity_id AS INTEGER) WHERE entity = 'kid';
+UPDATE audit_log SET
+    kid_id = (SELECT i.kid_id FROM instances i WHERE i.id = CAST(audit_log.entity_id AS INT)),
+    day = (SELECT i.day FROM instances i WHERE i.id = CAST(audit_log.entity_id AS INT))
+    WHERE entity = 'instance';
+CREATE INDEX audit_kid_day ON audit_log (kid_id, day);
+"""
+
 # Index i holds the script that upgrades schema version i to i + 1.
-MIGRATIONS: list[str] = [_V1]
+MIGRATIONS: list[str] = [_V1, _V2]
 SCHEMA_VERSION = len(MIGRATIONS)
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -623,10 +637,13 @@ class Repo:
         after: Any = None,
         note: str | None = None,
         at: str | None = None,
+        kid_id: int | None = None,
+        day: date | None = None,
+        late: bool = False,
     ) -> None:
         self._x(
-            "INSERT INTO audit_log (ts, user_id, action, entity, entity_id, before, after, note)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO audit_log (ts, user_id, action, entity, entity_id, before, after, note,"
+            " kid_id, day, late) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 at or now_iso(),
                 user_id,
@@ -636,12 +653,41 @@ class Repo:
                 _json_or_none(before),
                 _json_or_none(after),
                 note,
+                kid_id,
+                day.isoformat() if day else None,
+                late,
             ],
         )
 
-    def list_audit(self, limit: int = 100) -> list[dict[str, Any]]:
-        rows = self._x("SELECT * FROM audit_log ORDER BY id DESC LIMIT ?", [limit])
-        return [dict(r) for r in rows]
+    def list_audit(
+        self,
+        limit: int = 100,
+        *,
+        actions: Iterable[str] | None = None,
+        kid_id: int | None = None,
+        week: date | None = None,
+        late_only: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Newest first. `week` matches the chore's day (or the action's day if none)."""
+        where: list[str] = []
+        params: list[Any] = []
+        if actions is not None:
+            names = list(actions)
+            where.append(f"action IN ({','.join('?' * len(names))})" if names else "0")
+            params += names
+        if kid_id is not None:
+            where.append("kid_id = ?")
+            params.append(kid_id)
+        if week is not None:
+            where.append("day BETWEEN ? AND ?")
+            params += [week.isoformat(), (week + timedelta(days=6)).isoformat()]
+        if late_only:
+            where.append("late = 1")
+        sql = "SELECT * FROM audit_log"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        rows = self._x(sql + " ORDER BY id DESC LIMIT ?", [*params, limit])
+        return [{**dict(r), "late": bool(r["late"])} for r in rows]
 
     # helpers
 

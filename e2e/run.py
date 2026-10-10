@@ -97,6 +97,12 @@ def main() -> None:
         expect(card.locator("tr", has_text="Ada")).to_contain_text("Utbetalt 20 min")
         a.screenshot(path=ARTIFACTS / "5-payouts.png")
 
+        # "Detaljer" opens the audit log filtered on Ada + this week (D44).
+        card.locator("tr", has_text="Ada").locator('[data-action="details"]').click()
+        expect(a.locator("main")).to_contain_text("Krysset av")
+        expect(a.locator("main")).to_contain_text("Dekke bordet")
+        a.screenshot(path=ARTIFACTS / "7-log.png")
+
         # Admin tab renders.
         a.locator('[data-action="tab"][data-tab="admin"]').click()
         expect(a.locator("main")).to_contain_text("Dekke bordet")

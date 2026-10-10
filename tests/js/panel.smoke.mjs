@@ -57,6 +57,11 @@ function fakeHass() {
       settings: STATE.settings,
     }),
     "admin/chore/save": () => ({ id: 9, warnings: [1] }),
+    "parent/audit": () => ({
+      entries: [{ id: 1, ts: "2026-10-09T19:00:00+00:00", user_id: "u", action: "check", entity: "instance",
+        entity_id: "20", before: '{"status": "missed"}', after: '{"status": "done", "chore": "Dekke bordet"}',
+        note: null, kid_id: 1, day: "2026-10-08", late: true }],
+    }),
     "parent/set_status": (m) => ({ instance: inst(m.instance_id, 1, "x", "afternoon", "expected", m.status) }),
   };
   return {
@@ -204,4 +209,39 @@ test("admin: new chore form saves the typed values and shows the payout warning"
   assert.equal(save.chore_type, "expected");
   assert.ok(root.querySelector(".toast.info")?.textContent.includes("Skjermtid"), "payout warning");
   assert.equal(root.querySelector("form.form"), null, "form closed");
+});
+
+test("kid fixes yesterday from the week grid, with a dated confirmation (D8)", async () => {
+  const { root, hass } = await mount();
+  click(root, '[data-action="kid"][data-kid="1"]');
+  await tick();
+  click(root, '[data-action="toggle"][data-day="2026-10-08"]');
+  await tick();
+  assert.match(root.querySelector(".dialog").textContent, /Dekke bordet.*tor/s);
+  click(root, '[data-action="dialog-yes"]');
+  await tick();
+  assert.deepEqual(hass.calls.find((c) => c.type.endsWith("set_done")), {
+    type: "chores_and_rewards/set_done",
+    instance_id: 20,
+    done: true,
+  });
+});
+
+test("payout Detaljer opens the log filtered on kid, week and review actions (D44)", async () => {
+  const { root, hass } = await mount();
+  click(root, '[data-action="lock-toggle"]');
+  for (const d of "1234") click(root, `[data-action="pin-digit"][data-digit="${d}"]`);
+  click(root, '[data-action="pin-ok"]');
+  await tick();
+  click(root, '[data-action="tab"][data-tab="payouts"]');
+  await tick();
+  click(root, '[data-action="details"][data-kid="1"]');
+  await tick();
+  const query = hass.calls.findLast((c) => c.type.endsWith("parent/audit"));
+  assert.equal(query.kid_id, 1);
+  assert.equal(query.week, "2026-10-05");
+  assert.deepEqual(query.actions, ["check", "uncheck", "set_status", "adjust", "payout", "payout_undo"]);
+  assert.ok(root.querySelector(".late-row .late"), "late tick flagged");
+  assert.equal(root.querySelector('[data-filter="kid"]').value, "1");
+  assert.equal(root.querySelector('[data-filter="group"]').value, "review");
 });

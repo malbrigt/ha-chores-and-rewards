@@ -70,11 +70,11 @@ Settings keys:
 | Type | Request | Result |
 |---|---|---|
 | `get_state` | `day?` (default today) | `{today, day, week, week_status, is_preview, kids, currencies, settings, board: {kid_id: {chores: [instance], bonus: [instance], balances: {cid: balance}}}}`. `chores` holds expected chores ordered morning → afternoon → anytime. Also runs the catch-up rollover if the midnight job was missed. A future day returns an unsaved preview from the schedule (`is_preview`, instance `id` null). |
-| `get_week` | `kid_id`, `week?` (any date in that week) | `{week, week_status, days: [date], rows: [{chore_id, name, slot, type, cells: {date: status}, ids: {date: instance_id}}], balances}` |
-| `set_done` | `instance_id`, `done: bool` | `{instance}`. Kid rules: today only, and the week must be open (AC-6.1, AC-6.2). |
+| `get_week` | `kid_id`, `week?` (any date in that week) | `{week, week_status, days: [date], rows: [{chore_id, name, slot, type, cells: {date: status}, ids: {date: instance_id}, late: {date: bool}}], balances}` |
+| `set_done` | `instance_id`, `done: bool` | `{instance}`. Kid rules (D8): any day up to today in the open week. Ticks pending/missed → done; unticks done → pending (today or bonus) or missed (past expected). Excused and rejected are parent-only. Every call is audited as `check`/`uncheck` with the chore's day and a late flag (D43). |
 | `subscribe` | (nothing) | Pushes `{event: "updated"}` after any change; the panel then re-reads `get_state`. The event can arrive before the result of the command that caused it. |
 
-- `instance` = `{id, kid_id, chore_id, day, type, slot, name, icon, values, status}`
+- `instance` = `{id, kid_id, chore_id, day, type, slot, name, icon, values, status, status_at, late}`. `late` is true for a done chore ticked on a later local day.
 - `balance` = `{earned, lost, adjustments, cap, total}`
 
 ## Parent actions 🔒 (step 7)
@@ -87,4 +87,4 @@ Settings keys:
 | `parent/payout` | `kid_id`, `currency_id`, `paid: bool`, `week?` | `{amount}`. Ticking stores the current balance as the amount (D11). Also works for closed weeks, so late payouts are possible. |
 | `parent/close_week` | (nothing) | `{}`. Closes the current week early. The week freezes: no taps, no midnight losses, no new rows (D31). |
 | `parent/reopen_week` | (nothing) | `{}`. Undoes an early close of the current week. Errors with `not_allowed` if the week isn't closed. |
-| `parent/audit` | `limit?` (default 100) | `{entries}` |
+| `parent/audit` | `limit?` (default 100), `actions?: [str]`, `kid_id?`, `week?` (any date in it; matches the chore's day), `late_only?` | `{entries: [{ts, user_id, action, entity, entity_id, before, after, note, kid_id, day, late}]}` newest first (D44) |
