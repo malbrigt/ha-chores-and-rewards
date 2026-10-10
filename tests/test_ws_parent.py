@@ -4,9 +4,8 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pytest
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
-from .ws_helpers import chore, err, ok, unlock
+from .ws_helpers import chore, err, kid_board, midnight, ok, unlock
 
 pytestmark = pytest.mark.freeze_time("2026-10-12 08:00:00+00:00")  # Mon 10:00 Oslo
 OSLO = ZoneInfo("Europe/Oslo")
@@ -22,13 +21,7 @@ async def _setup(ws):
 
 
 async def _balance(ws, ada, cur=SCREEN):
-    return (await ok(ws, "get_state"))["board"][str(ada)]["balances"][cur]
-
-
-async def _midnight(hass, freezer, day):
-    freezer.move_to(datetime(2026, 10, day, 0, 0, 0, tzinfo=OSLO))
-    async_fire_time_changed(hass)
-    await hass.async_block_till_done()
+    return (await kid_board(ws, ada))["balances"][cur]
 
 
 async def test_reject_counts_as_missed_and_is_audited(ws):
@@ -70,7 +63,7 @@ async def test_excused_and_refusals(ws):
 async def test_parent_fixes_yesterday(hass, ws, freezer):
     """D8: parent can mark a past day done (kids can too, see test_ws_kid)."""
     token, ada, dishes = await _setup(ws)
-    await _midnight(hass, freezer, 13)
+    await midnight(hass, freezer, 13)
     assert (await _balance(ws, ada))["lost"] == 30
     token = await unlock(ws)  # the fake clock moved past the session timeout
     await ok(ws, "parent/set_status", token=token, instance_id=dishes["id"], status="done")
@@ -133,7 +126,7 @@ async def test_payout_day_flag_and_late_payout(hass, ws, freezer):
     flags = {i["currency_id"]: i["is_payout_day"] for i in data["items"]}
     assert flags == {1: True, 2: False}
 
-    await _midnight(hass, freezer, 19)  # next Monday: last week auto-closed
+    await midnight(hass, freezer, 19)  # next Monday: last week auto-closed
     token = await unlock(ws)
     last = await ok(ws, "parent/payouts", token=token, week="2026-10-12")
     assert last["week_status"] == "closed"
@@ -160,7 +153,7 @@ async def test_close_week_freezes_and_reopen(hass, ws, freezer):
     kw = {"token": token, "kid_id": ada, "currency_id": 1, "amount": 5, "note": "x"}
     assert await err(ws, "parent/adjust", **kw) == "week_closed"
 
-    await _midnight(hass, freezer, 13)
+    await midnight(hass, freezer, 13)
     state = await ok(ws, "get_state")
     assert state["board"][str(ada)]["chores"] == []  # no rows in a frozen week
     assert state["board"][str(ada)]["balances"][SCREEN]["lost"] == 0  # Monday not missed

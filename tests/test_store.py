@@ -12,7 +12,14 @@ from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.chores_and_rewards import backup, diagnostics
 from custom_components.chores_and_rewards.const import SIGNAL_UPDATED
-from custom_components.chores_and_rewards.logic import Chore, ChoreType, Slot, Status
+from custom_components.chores_and_rewards.logic import (
+    Chore,
+    ChoreType,
+    Kid,
+    Slot,
+    Status,
+    WeekStatus,
+)
 
 OSLO = ZoneInfo("Europe/Oslo")
 FRI = date(2026, 10, 9)
@@ -28,8 +35,8 @@ async def _seed(store):
     """One kid with an every-day expected chore and a weekend bonus chore."""
 
     def seed(repo):
-        kid = repo.add_kid("Ada")
-        repo.add_chore(
+        kid = repo.save_kid(Kid(0, "Ada"))
+        repo.save_chore(
             Chore(
                 0,
                 "Dishes",
@@ -40,7 +47,7 @@ async def _seed(store):
                 {1: 30},
             )
         )
-        repo.add_chore(
+        repo.save_chore(
             Chore(
                 0,
                 "Windows",
@@ -129,8 +136,8 @@ async def test_catch_up_three_days_across_monday(hass, setup_entry, freezer):
     ]
     assert by_day[MON] == [("Dishes", Status.MISSED)]
     assert by_day[TUE] == [("Dishes", Status.PENDING)]
-    weeks = {w["start"]: w["status"] for w in await store.async_read(lambda r: r.list_weeks())}
-    assert weeks == {"2026-10-05": "closed", "2026-10-12": "open"}
+    status = await store.async_read(lambda r: [r.week_status(date(2026, 10, d)) for d in (5, 12)])
+    assert status == [WeekStatus.CLOSED, WeekStatus.OPEN]
     audit = await store.async_read(lambda r: r.list_audit(actions=["close_week"]))
     assert [(a["day"], a["note"]) for a in audit] == [("2026-10-05", "auto")]
     missed = await store.async_read(lambda r: r.list_audit(actions=["auto_missed"]))
@@ -194,7 +201,7 @@ async def test_backup_blocks_writes_until_done(hass, setup_entry, freezer):
         await backup.async_pre_backup(hass)
     checkpoint.assert_called_once()
     assert store.lock.locked()
-    write = hass.async_create_task(store.async_write(lambda r: r.add_kid("Ada")))
+    write = hass.async_create_task(store.async_write(lambda r: r.save_kid(Kid(0, "Ada"))))
     await asyncio.sleep(0)
     assert not write.done()
     await backup.async_post_backup(hass)
@@ -219,7 +226,7 @@ async def test_diagnostics_redacts_pin(hass, setup_entry, freezer):
     entry = await setup_entry()
     await _seed(entry.runtime_data)
     diag = await diagnostics.async_get_config_entry_diagnostics(hass, entry)
-    assert diag["entry"]["pin_hash"] == "**REDACTED**"
+    assert diag["entry"]["data"]["pin_hash"] == "**REDACTED**"
     assert diag["db"]["counts"]["kids"] == 1
     assert diag["db"]["open_weeks"] == ["2026-10-12"]
     assert diag["db"]["schema_version"] == 1

@@ -73,6 +73,11 @@ class CapMode(StrEnum):
     POT = "pot"  # max = sum of the kid's scheduled chore values this week
 
 
+class WeekStatus(StrEnum):
+    OPEN = "open"
+    CLOSED = "closed"
+
+
 class Actor(StrEnum):
     KID = "kid"
     PARENT = "parent"
@@ -218,15 +223,6 @@ def snapshot(chore: Chore, kid_id: int, day: date) -> Instance:
     )
 
 
-def group_by_slot(instances: Iterable[Instance]) -> dict[Slot, list[Instance]]:
-    """Expected instances grouped morning → afternoon → anytime (bonus excluded)."""
-    groups: dict[Slot, list[Instance]] = {slot: [] for slot in SLOT_ORDER}
-    for inst in instances:
-        if inst.type is ChoreType.EXPECTED:
-            groups[inst.slot].append(inst)
-    return groups
-
-
 # --- State transitions --------------------------------------------------------
 
 
@@ -249,9 +245,7 @@ def is_late(day: date, changed_on: date) -> bool:
     return changed_on > day
 
 
-def transition(
-    inst: Instance, target: Status, actor: Actor, today: date, open_week: date | None = None
-) -> Instance:
+def transition(inst: Instance, target: Status, actor: Actor, today: date) -> Instance:
     """Apply a status change if the rules allow it, else raise RuleError.
 
     Both kids and parents: any day up to today in the open week (D8).
@@ -260,8 +254,7 @@ def transition(
     """
     if inst.day > today:
         raise RuleError("future_day")
-    week = open_week if open_week is not None else week_start(today)
-    if week_start(inst.day) != week:
+    if week_start(inst.day) != week_start(today):
         raise RuleError("week_closed")
 
     if actor is Actor.KID:
@@ -355,3 +348,13 @@ def payout_warnings(chore: Chore, currencies: Iterable[Currency]) -> list[int]:
 
 def is_payout_day(currency: Currency, day: date) -> bool:
     return currency.active and day.weekday() == currency.payout_weekday
+
+
+def payout_day(currency: Currency, week: date) -> date:
+    """The date in `week` when this currency is paid out."""
+    return week + timedelta(days=currency.payout_weekday)
+
+
+def after_payout(amount_due: int, paid: int | None) -> int:
+    """Earned since the payout was ticked; the parent settles it by hand (§5, D11)."""
+    return max(0, amount_due - paid) if paid is not None else 0

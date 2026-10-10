@@ -17,7 +17,6 @@ from custom_components.chores_and_rewards.logic import (
     compute_balance,
     days_to_finalize,
     finalize,
-    group_by_slot,
     instances_for_day,
     is_late,
     is_payout_day,
@@ -134,16 +133,6 @@ def test_snapshot_is_independent_of_later_edits():
     assert i.values == {1: 30}
 
 
-def test_group_by_slot_order_and_bonus_excluded():
-    """AC-8.1."""
-    items = [inst(DISHES), inst(BED), inst(WINDOWS, day=date(2026, 10, 10))]
-    groups = group_by_slot(items)
-    assert list(groups) == [Slot.MORNING, Slot.AFTERNOON, Slot.ANYTIME]
-    assert [i.name for i in groups[Slot.MORNING]] == ["Make bed"]
-    assert [i.name for i in groups[Slot.AFTERNOON]] == ["Dishes"]
-    assert groups[Slot.ANYTIME] == []
-
-
 # --- transitions --------------------------------------------------------------
 
 
@@ -224,12 +213,6 @@ def test_parent_refusals(instance, target, today, code):
     with pytest.raises(RuleError) as err:
         transition(instance, target, Actor.PARENT, today=today)
     assert err.value.code == code
-
-
-def test_parent_explicit_open_week():
-    old = inst(day=date(2026, 9, 30), status=Status.MISSED)
-    out = transition(old, Status.EXCUSED, Actor.PARENT, today=TUE, open_week=date(2026, 9, 28))
-    assert out.status is Status.EXCUSED
 
 
 # --- balances -----------------------------------------------------------------

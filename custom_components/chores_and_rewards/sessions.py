@@ -62,10 +62,6 @@ class PinSessions:
         self._sessions[token] = self._clock() + self.timeout
         return token
 
-    @property
-    def attempts_left(self) -> int:
-        return self._max_failures - self._failures
-
     def touch(self, token: str | None) -> bool:
         """True if the token is valid; extends it (sliding expiry)."""
         if not token:
@@ -83,16 +79,6 @@ class PinSessions:
 
     def lock(self, token: str) -> None:
         self._sessions.pop(token, None)
-
-    def lock_all(self) -> None:
-        self._sessions.clear()
-
-    def reset(self) -> None:
-        """PIN changed by an HA admin: end all sessions and clear failures and lockouts."""
-        self.lock_all()
-        self._failures = 0
-        self._lockout_level = 0
-        self._locked_until = 0.0
 
     def _purge(self) -> None:
         now = self._clock()

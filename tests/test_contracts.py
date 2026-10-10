@@ -116,11 +116,16 @@ def test_ws_doc_lists_every_command():
 
 
 def test_panel_labels_every_audit_action():
-    """Every audit action in the replay contract has an nb label in the panel's log."""
-    from .replay import NO_STATE
+    """Every AuditAction has an nb label in the panel's log (D46)."""
+    from custom_components.chores_and_rewards.audit import AuditAction
 
     panel = (ROOT / "custom_components/chores_and_rewards/frontend/panel.js").read_text()
-    doc = (ROOT / "docs/ws-api.md").read_text().split("## Audit actions")[1]
-    actions = set(re.findall(r"`([a-z_]+)`", doc)) | NO_STATE
-    missing = [a for a in sorted(actions) if f"a_{a}:" not in panel]
+    missing = [a.value for a in AuditAction if f"a_{a.value}:" not in panel]
     assert missing == []
+
+
+def test_ws_doc_lists_every_audit_action():
+    from custom_components.chores_and_rewards.audit import AuditAction
+
+    doc = (ROOT / "docs/ws-api.md").read_text().split("## Audit actions")[1]
+    assert set(re.findall(r"`([a-z_]+)`", doc)) == {a.value for a in AuditAction}

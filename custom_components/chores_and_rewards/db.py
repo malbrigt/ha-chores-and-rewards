@@ -17,7 +17,22 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from .logic import CapMode, Chore, ChoreType, Currency, Instance, Kid, Slot, Status, week_start
+from .audit import AuditAction
+from .const import SYSTEM_USER
+from .logic import (
+    CapMode,
+    Chore,
+    ChoreType,
+    Currency,
+    Instance,
+    Kid,
+    Slot,
+    Status,
+    WeekStatus,
+    snapshot,
+    week_start,
+)
+from .serialize import instance_json
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -224,7 +239,6 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 }
 
 META_LAST_FINALIZED = "last_finalized"
-SYSTEM = "system"  # audit user for automatic changes (same value as const.SYSTEM_USER)
 
 
 def now_iso() -> str:
@@ -357,6 +371,13 @@ class Repo:
         connections can hit "database is locked"."""
         self._x("PRAGMA optimize")
 
+    def schema_version(self) -> int:
+        return _read_version(self.conn)
+
+    def counts(self, tables: Iterable[str]) -> dict[str, int]:
+        """Row counts (diagnostics). Table names come from code, never from input."""
+        return {t: self._x(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in tables}
+
     # meta / settings
 
     def get_meta(self, key: str) -> str | None:
@@ -385,37 +406,28 @@ class Repo:
     # kids
 
     def list_kids(self, include_inactive: bool = False) -> list[Kid]:
-        sql = "SELECT * FROM kids WHERE deleted_at IS NULL"
-        if not include_inactive:
-            sql += " AND active = 1"
-        return [_kid(r) for r in self._x(sql + " ORDER BY sort, id")]
+        return [_kid(r) for r in self._select("kids", include_inactive)]
 
     def get_kid(self, kid_id: int) -> Kid | None:
-        row = self._x("SELECT * FROM kids WHERE id = ? AND deleted_at IS NULL", [kid_id]).fetchone()
+        row = self._get("kids", kid_id)
         return _kid(row) if row else None
 
-    def add_kid(self, name: str, sort: int = 0, active: bool = True) -> int:
-        cur = self._x(
-            "INSERT INTO kids (name, sort, active) VALUES (?, ?, ?)", [name, sort, active]
+    def save_kid(self, kid: Kid) -> int:
+        """Insert (id 0) or update; returns the id."""
+        return self._save(
+            "kids", kid.id, {"name": kid.name, "sort": kid.sort, "active": kid.active}
         )
-        return _id(cur)
-
-    def update_kid(self, kid_id: int, **fields: Any) -> None:
-        self._update("kids", kid_id, fields, {"name", "sort", "active"})
 
     def delete_kid(self, kid_id: int) -> None:
         self._soft_delete("kids", kid_id)
-
-    def kid_max(self, kid_id: int) -> dict[int, int]:
-        rows = self._x(
-            "SELECT currency_id, weekly_max FROM kid_currency_max WHERE kid_id = ?", [kid_id]
-        )
-        return {r[0]: r[1] for r in rows}
 
     def all_kid_max(self) -> dict[tuple[int, int], int]:
         """{(kid_id, currency_id): weekly_max} for every kid."""
         rows = self._x("SELECT kid_id, currency_id, weekly_max FROM kid_currency_max")
         return {(r[0], r[1]): r[2] for r in rows}
+
+    def kid_max(self, kid_id: int) -> dict[int, int]:
+        return {c: m for (k, c), m in self.all_kid_max().items() if k == kid_id}
 
     def set_kid_max(self, kid_id: int, currency_id: int, weekly_max: int | None) -> None:
         if weekly_max is None:
@@ -432,34 +444,26 @@ class Repo:
     # currencies
 
     def list_currencies(self, include_inactive: bool = False) -> list[Currency]:
-        sql = "SELECT * FROM currencies WHERE deleted_at IS NULL"
-        if not include_inactive:
-            sql += " AND active = 1"
-        return [_currency(r) for r in self._x(sql + " ORDER BY sort, id")]
+        return [_currency(r) for r in self._select("currencies", include_inactive)]
 
-    def add_currency(self, c: Currency) -> int:
-        cur = self._x(
-            "INSERT INTO currencies (name, unit, icon, payout_weekday, can_be_lost, cap_mode,"
-            " default_max, active, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [
-                c.name,
-                c.unit,
-                c.icon,
-                c.payout_weekday,
-                c.can_be_lost,
-                c.cap_mode.value,
-                c.default_max,
-                c.active,
-                c.sort,
-            ],
-        )
-        return _id(cur)
+    def get_currency(self, currency_id: int) -> Currency | None:
+        row = self._get("currencies", currency_id)
+        return _currency(row) if row else None
 
-    def update_currency(self, currency_id: int, **fields: Any) -> None:
-        if "cap_mode" in fields:
-            fields["cap_mode"] = CapMode(fields["cap_mode"]).value
-        allowed = {"name", "unit", "icon", "payout_weekday", "can_be_lost", "cap_mode"}
-        self._update("currencies", currency_id, fields, allowed | {"default_max", "active", "sort"})
+    def save_currency(self, c: Currency) -> int:
+        """Insert (id 0) or update; returns the id."""
+        fields = {
+            "name": c.name,
+            "unit": c.unit,
+            "icon": c.icon,
+            "payout_weekday": c.payout_weekday,
+            "can_be_lost": c.can_be_lost,
+            "cap_mode": CapMode(c.cap_mode).value,
+            "default_max": c.default_max,
+            "active": c.active,
+            "sort": c.sort,
+        }
+        return self._save("currencies", c.id, fields)
 
     def delete_currency(self, currency_id: int) -> None:
         self._soft_delete("currencies", currency_id)
@@ -467,112 +471,92 @@ class Repo:
     # chores
 
     def list_chores(self, include_inactive: bool = False) -> list[Chore]:
-        sql = "SELECT * FROM chores WHERE deleted_at IS NULL"
-        if not include_inactive:
-            sql += " AND active = 1"
-        rows = self._x(sql + " ORDER BY sort, id").fetchall()
-        kids: dict[int, set[int]] = {}
-        for r in self._x("SELECT chore_id, kid_id FROM chore_kids"):
-            kids.setdefault(r[0], set()).add(r[1])
-        values: dict[int, dict[int, int]] = {}
-        for r in self._x("SELECT chore_id, currency_id, value FROM chore_values"):
-            values.setdefault(r[0], {})[r[1]] = r[2]
-        return [_chore(r, kids.get(r["id"], set()), values.get(r["id"], {})) for r in rows]
+        return self._chores(self._select("chores", include_inactive))
 
     def get_chore(self, chore_id: int) -> Chore | None:
-        return next((c for c in self.list_chores(True) if c.id == chore_id), None)
+        row = self._get("chores", chore_id)
+        return self._chores([row])[0] if row else None
 
-    def add_chore(self, c: Chore) -> int:
-        cur = self._x(
-            "INSERT INTO chores (name, icon, description, type, slot, weekdays, active, sort)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            [
-                c.name,
-                c.icon,
-                c.description,
-                c.type.value,
-                c.slot.value,
-                weekdays_to_mask(c.weekdays),
-                c.active,
-                c.sort,
-            ],
+    def save_chore(self, c: Chore) -> int:
+        """Insert (id 0) or update with kids and values; returns the id. History keeps
+        its snapshots (D6)."""
+        fields = {
+            "name": c.name,
+            "icon": c.icon,
+            "description": c.description,
+            "type": c.type.value,
+            "slot": c.slot.value,
+            "weekdays": weekdays_to_mask(c.weekdays),
+            "active": c.active,
+            "sort": c.sort,
+        }
+        chore_id = self._save("chores", c.id, fields)
+        self._x("DELETE FROM chore_kids WHERE chore_id = ?", [chore_id])
+        self._x("DELETE FROM chore_values WHERE chore_id = ?", [chore_id])
+        self.conn.executemany(
+            "INSERT INTO chore_kids (chore_id, kid_id) VALUES (?, ?)",
+            [(chore_id, k) for k in c.kid_ids],
         )
-        chore_id = _id(cur)
-        self._set_chore_links(chore_id, c.kid_ids, c.values)
+        self.conn.executemany(
+            "INSERT INTO chore_values (chore_id, currency_id, value) VALUES (?, ?, ?)",
+            [(chore_id, cid, v) for cid, v in c.values.items() if v],
+        )
         return chore_id
-
-    def update_chore(self, c: Chore) -> None:
-        """Replace a chore's definition (by id). History keeps its snapshots."""
-        self._x(
-            "UPDATE chores SET name = ?, icon = ?, description = ?, type = ?, slot = ?,"
-            " weekdays = ?, active = ?, sort = ? WHERE id = ?",
-            [
-                c.name,
-                c.icon,
-                c.description,
-                c.type.value,
-                c.slot.value,
-                weekdays_to_mask(c.weekdays),
-                c.active,
-                c.sort,
-                c.id,
-            ],
-        )
-        self._x("DELETE FROM chore_kids WHERE chore_id = ?", [c.id])
-        self._x("DELETE FROM chore_values WHERE chore_id = ?", [c.id])
-        self._set_chore_links(c.id, c.kid_ids, c.values)
 
     def delete_chore(self, chore_id: int) -> None:
         self._soft_delete("chores", chore_id)
 
-    def _set_chore_links(
-        self, chore_id: int, kid_ids: Iterable[int], values: Mapping[int, int]
-    ) -> None:
-        self.conn.executemany(
-            "INSERT INTO chore_kids (chore_id, kid_id) VALUES (?, ?)",
-            [(chore_id, k) for k in kid_ids],
-        )
-        self.conn.executemany(
-            "INSERT INTO chore_values (chore_id, currency_id, value) VALUES (?, ?, ?)",
-            [(chore_id, cid, v) for cid, v in values.items() if v],
-        )
+    def _chores(self, rows: list[sqlite3.Row]) -> list[Chore]:
+        if not rows:
+            return []
+        ids = [r["id"] for r in rows]
+        marks = ",".join("?" * len(ids))
+        kids: dict[int, set[int]] = {}
+        for r in self._x(
+            f"SELECT chore_id, kid_id FROM chore_kids WHERE chore_id IN ({marks})", ids
+        ):
+            kids.setdefault(r[0], set()).add(r[1])
+        values: dict[int, dict[int, int]] = {}
+        for r in self._x(
+            f"SELECT chore_id, currency_id, value FROM chore_values WHERE chore_id IN ({marks})",
+            ids,
+        ):
+            values.setdefault(r[0], {})[r[1]] = r[2]
+        return [_chore(r, kids.get(r["id"], set()), values.get(r["id"], {})) for r in rows]
 
     # weeks
 
-    def ensure_week(self, start: date, by: str | None = SYSTEM) -> None:
+    def ensure_week(self, start: date, by: str | None = SYSTEM_USER) -> None:
         row = self._x(
             "INSERT OR IGNORE INTO weeks (start) VALUES (?) RETURNING start", [start.isoformat()]
         ).fetchone()
         if row is not None:
-            self.audit("week_open", user_id=by, entity="week", day=start)
+            self.audit(AuditAction.WEEK_OPEN, user_id=by, entity="week", day=start)
 
-    def week_status(self, start: date) -> str | None:
+    def week_status(self, start: date) -> WeekStatus | None:
         row = self._x("SELECT status FROM weeks WHERE start = ?", [start.isoformat()]).fetchone()
-        return row[0] if row else None
+        return WeekStatus(row[0]) if row else None
 
     def open_weeks(self) -> list[date]:
-        rows = self._x("SELECT start FROM weeks WHERE status = 'open' ORDER BY start")
+        rows = self._x("SELECT start FROM weeks WHERE status = ? ORDER BY start", [WeekStatus.OPEN])
         return [date.fromisoformat(r[0]) for r in rows]
 
-    def list_weeks(self) -> list[dict[str, Any]]:
-        return [dict(r) for r in self._x("SELECT * FROM weeks ORDER BY start DESC")]
-
-    def close_week(self, start: date, by: str | None, at: str | None = None) -> None:
+    def close_week(self, start: date, by: str | None) -> None:
         self._x(
-            "UPDATE weeks SET status = 'closed', closed_at = ?, closed_by = ?"
-            " WHERE start = ? AND status = 'open'",
-            [at or now_iso(), by, start.isoformat()],
+            "UPDATE weeks SET status = ?, closed_at = ?, closed_by = ?"
+            " WHERE start = ? AND status = ?",
+            [WeekStatus.CLOSED, now_iso(), by, start.isoformat(), WeekStatus.OPEN],
         )
 
     def reopen_week(self, start: date) -> None:
         self._x(
-            "UPDATE weeks SET status = 'open', closed_at = NULL, closed_by = NULL WHERE start = ?",
-            [start.isoformat()],
+            "UPDATE weeks SET status = ?, closed_at = NULL, closed_by = NULL WHERE start = ?",
+            [WeekStatus.OPEN, start.isoformat()],
         )
 
     # instances
 
-    def insert_instances(self, instances: Iterable[Instance], by: str | None = SYSTEM) -> int:
+    def insert_instances(self, instances: Iterable[Instance], by: str | None = SYSTEM_USER) -> int:
         """Insert new instances; existing (kid, chore, day) rows are left alone.
 
         The week is derived from each instance's day, so callers can't mismatch them.
@@ -600,24 +584,74 @@ class Repo:
             ).fetchone()
             if row is not None:  # None: the (kid, chore, day) row already existed
                 self._set_instance_values(row[0], i.values)
-                self._audit_instance("instance_create", by, replace(i, id=row[0]))
+                self._audit_instance(AuditAction.INSTANCE_CREATE, by, replace(i, id=row[0]))
                 inserted += 1
         return inserted
 
-    def _audit_instance(
-        self, action: str, by: str | None, inst: Instance, before: Any = None
-    ) -> None:
-        """Full snapshot, so the row can be rebuilt from the log alone (D46)."""
-        self.audit(
-            action,
-            user_id=by,
-            entity="instance",
-            entity_id=inst.id,
-            before=before,
-            after=instance_snapshot(inst),
-            kid_id=inst.kid_id,
-            day=inst.day,
+    def list_instances(
+        self, *, week: date | None = None, day: date | None = None, kid_id: int | None = None
+    ) -> list[Instance]:
+        where, params = _where(
+            week=week.isoformat() if week else None,
+            day=day.isoformat() if day else None,
+            kid_id=kid_id,
         )
+        return self._load_instances(where, params)
+
+    def get_instance(self, instance_id: int) -> Instance | None:
+        found = self._load_instances("WHERE id = ?", [instance_id])
+        return found[0] if found else None
+
+    def set_status(self, instance_id: int, status: Status, by: str | None) -> str:
+        """Change one instance's status; returns its new status_at."""
+        row = self._x(
+            "UPDATE instances SET status = ?, status_at = ?, status_by = ? WHERE id = ?"
+            " RETURNING status_at",
+            [status.value, now_iso(), by, instance_id],
+        ).fetchone()
+        if row is None:
+            raise LookupError(f"instance {instance_id}")
+        return str(row[0])
+
+    def resync_pending(self, chore: Chore, day: date, by: str | None = SYSTEM_USER) -> None:
+        """Refresh pending snapshots of `chore` on `day` after an edit (D7)."""
+        rows = self._x(
+            "UPDATE instances SET type = ?, slot = ?, name = ?, icon = ?"
+            " WHERE chore_id = ? AND day = ? AND status = ? RETURNING id, kid_id",
+            [
+                chore.type.value,
+                chore.slot.value,
+                chore.name,
+                chore.icon,
+                chore.id,
+                day.isoformat(),
+                Status.PENDING,
+            ],
+        ).fetchall()
+        for instance_id, kid_id in rows:
+            self._set_instance_values(instance_id, chore.values)
+            updated = replace(snapshot(chore, kid_id, day), id=instance_id)
+            self._audit_instance(AuditAction.INSTANCE_UPDATE, by, updated)
+
+    def delete_pending(
+        self, chore_id: int, day: date, keep_kids: Iterable[int] = (), by: str | None = SYSTEM_USER
+    ) -> None:
+        """Drop pending rows for a chore on a day, e.g. when it is unassigned or deactivated."""
+        keep = list(keep_kids)
+        sql = "DELETE FROM instances WHERE chore_id = ? AND day = ? AND status = ?"
+        if keep:
+            sql += f" AND kid_id NOT IN ({','.join('?' * len(keep))})"
+        params = [chore_id, day.isoformat(), Status.PENDING, *keep]
+        self._audit_deleted(self._x(sql + " RETURNING id, kid_id, day", params), by)
+
+    def delete_pending_for_kid(self, kid_id: int, day: date, by: str | None = SYSTEM_USER) -> None:
+        """Drop a kid's pending rows on a day, e.g. when the kid is deactivated."""
+        rows = self._x(
+            "DELETE FROM instances WHERE kid_id = ? AND day = ? AND status = ?"
+            " RETURNING id, kid_id, day",
+            [kid_id, day.isoformat(), Status.PENDING],
+        )
+        self._audit_deleted(rows, by)
 
     def _set_instance_values(self, instance_id: int, values: Mapping[int, int]) -> None:
         self._x("DELETE FROM instance_values WHERE instance_id = ?", [instance_id])
@@ -637,72 +671,22 @@ class Repo:
             values.setdefault(r[0], {})[r[1]] = r[2]
         return [_instance(r, values.get(r["id"], {})) for r in rows]
 
-    def list_instances(
-        self, *, week: date | None = None, day: date | None = None, kid_id: int | None = None
-    ) -> list[Instance]:
-        where: list[str] = []
-        params: list[Any] = []
-        if week is not None:
-            where.append("week = ?")
-            params.append(week.isoformat())
-        if day is not None:
-            where.append("day = ?")
-            params.append(day.isoformat())
-        if kid_id is not None:
-            where.append("kid_id = ?")
-            params.append(kid_id)
-        return self._load_instances("WHERE " + " AND ".join(where) if where else "", params)
-
-    def get_instance(self, instance_id: int) -> Instance | None:
-        found = self._load_instances("WHERE id = ?", [instance_id])
-        return found[0] if found else None
-
-    def set_status(
-        self, instance_id: int, status: Status, by: str | None, at: str | None = None
-    ) -> None:
-        self._x(
-            "UPDATE instances SET status = ?, status_at = ?, status_by = ? WHERE id = ?",
-            [Status(status).value, at or now_iso(), by, instance_id],
+    def _audit_instance(self, action: AuditAction, by: str | None, inst: Instance) -> None:
+        """Full snapshot, so the row can be rebuilt from the log alone (D46)."""
+        self.audit(
+            action,
+            user_id=by,
+            entity="instance",
+            entity_id=inst.id,
+            after=instance_json(inst),
+            kid_id=inst.kid_id,
+            day=inst.day,
         )
-
-    def resync_pending(self, chore: Chore, day: date, by: str | None = SYSTEM) -> None:
-        """Refresh pending snapshots of `chore` on `day` after an edit (D7)."""
-        ids = self._x(
-            "UPDATE instances SET type = ?, slot = ?, name = ?, icon = ?"
-            " WHERE chore_id = ? AND day = ? AND status = 'pending' RETURNING id",
-            [chore.type.value, chore.slot.value, chore.name, chore.icon, chore.id, day.isoformat()],
-        ).fetchall()
-        for (instance_id,) in ids:
-            self._set_instance_values(instance_id, chore.values)
-            inst = self.get_instance(instance_id)
-            assert inst is not None
-            self._audit_instance("instance_update", by, inst)
-
-    def delete_pending(
-        self, chore_id: int, day: date, keep_kids: Iterable[int] = (), by: str | None = SYSTEM
-    ) -> None:
-        """Drop pending rows for a chore on a day, e.g. when it is unassigned or deactivated."""
-        keep = list(keep_kids)
-        sql = "DELETE FROM instances WHERE chore_id = ? AND day = ? AND status = 'pending'"
-        if keep:
-            sql += f" AND kid_id NOT IN ({','.join('?' * len(keep))})"
-        self._audit_deleted(
-            self._x(sql + " RETURNING id, kid_id, day", [chore_id, day.isoformat(), *keep]), by
-        )
-
-    def delete_pending_for_kid(self, kid_id: int, day: date, by: str | None = SYSTEM) -> None:
-        """Drop a kid's pending rows on a day, e.g. when the kid is deactivated."""
-        rows = self._x(
-            "DELETE FROM instances WHERE kid_id = ? AND day = ? AND status = 'pending'"
-            " RETURNING id, kid_id, day",
-            [kid_id, day.isoformat()],
-        )
-        self._audit_deleted(rows, by)
 
     def _audit_deleted(self, rows: sqlite3.Cursor, by: str | None) -> None:
         for instance_id, kid_id, day in rows.fetchall():
             self.audit(
-                "instance_delete",
+                AuditAction.INSTANCE_DELETE,
                 user_id=by,
                 entity="instance",
                 entity_id=instance_id,
@@ -713,22 +697,15 @@ class Repo:
     # adjustments
 
     def add_adjustment(
-        self,
-        week: date,
-        kid_id: int,
-        currency_id: int,
-        amount: int,
-        note: str,
-        by: str | None,
-        at: str | None = None,
+        self, week: date, kid_id: int, currency_id: int, amount: int, note: str, by: str | None
     ) -> int:
         self.ensure_week(week)
         cur = self._x(
             "INSERT INTO adjustments (week, kid_id, currency_id, amount, note, created_at,"
-            " created_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            [week.isoformat(), kid_id, currency_id, amount, note, at or now_iso(), by],
+            " created_by) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
+            [week.isoformat(), kid_id, currency_id, amount, note, now_iso(), by],
         )
-        return _id(cur)
+        return _returned_id(cur)
 
     def adjustment_totals(self, week: date) -> dict[tuple[int, int], int]:
         """{(kid_id, currency_id): sum of adjustments} for one week."""
@@ -739,14 +716,6 @@ class Repo:
         )
         return {(r[0], r[1]): r[2] for r in rows}
 
-    def adjustment_total(self, week: date, kid_id: int, currency_id: int) -> int:
-        row = self._x(
-            "SELECT COALESCE(SUM(amount), 0) FROM adjustments"
-            " WHERE week = ? AND kid_id = ? AND currency_id = ?",
-            [week.isoformat(), kid_id, currency_id],
-        ).fetchone()
-        return int(row[0])
-
     def list_adjustments(self, week: date) -> list[dict[str, Any]]:
         rows = self._x("SELECT * FROM adjustments WHERE week = ? ORDER BY id", [week.isoformat()])
         return [dict(r) for r in rows]
@@ -754,19 +723,13 @@ class Repo:
     # payouts
 
     def record_payout(
-        self,
-        week: date,
-        kid_id: int,
-        currency_id: int,
-        amount: int,
-        by: str | None,
-        at: str | None = None,
+        self, week: date, kid_id: int, currency_id: int, amount: int, by: str | None
     ) -> None:
         self.ensure_week(week)
         self._x(
             "INSERT OR REPLACE INTO payouts (week, kid_id, currency_id, amount, done_at, done_by)"
             " VALUES (?, ?, ?, ?, ?, ?)",
-            [week.isoformat(), kid_id, currency_id, amount, at or now_iso(), by],
+            [week.isoformat(), kid_id, currency_id, amount, now_iso(), by],
         )
 
     def undo_payout(self, week: date, kid_id: int, currency_id: int) -> None:
@@ -783,7 +746,7 @@ class Repo:
 
     def audit(
         self,
-        action: str,
+        action: AuditAction,
         *,
         user_id: str | None,
         entity: str | None = None,
@@ -791,7 +754,6 @@ class Repo:
         before: Any = None,
         after: Any = None,
         note: str | None = None,
-        at: str | None = None,
         kid_id: int | None = None,
         day: date | None = None,
         late: bool = False,
@@ -800,9 +762,9 @@ class Repo:
             "INSERT INTO audit_log (ts, user_id, action, entity, entity_id, before, after, note,"
             " kid_id, day, late) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
-                at or now_iso(),
+                now_iso(),
                 user_id,
-                action,
+                AuditAction(action).value,
                 entity,
                 entity_id,
                 _json_or_none(before),
@@ -824,36 +786,46 @@ class Repo:
         late_only: bool = False,
     ) -> list[dict[str, Any]]:
         """Newest first. `week` matches the chore's day (or the action's day if none)."""
-        where: list[str] = []
-        params: list[Any] = []
+        where, params = _where(kid_id=kid_id, late=1 if late_only else None)
+        clauses = [where.removeprefix("WHERE ")] if where else []
         if actions is not None:
             names = list(actions)
-            where.append(f"action IN ({','.join('?' * len(names))})" if names else "0")
+            clauses.append(f"action IN ({','.join('?' * len(names))})" if names else "0")
             params += names
-        if kid_id is not None:
-            where.append("kid_id = ?")
-            params.append(kid_id)
         if week is not None:
-            where.append("day BETWEEN ? AND ?")
+            clauses.append("day BETWEEN ? AND ?")
             params += [week.isoformat(), (week + timedelta(days=6)).isoformat()]
-        if late_only:
-            where.append("late = 1")
         sql = "SELECT * FROM audit_log"
-        if where:
-            sql += " WHERE " + " AND ".join(where)
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
         rows = self._x(sql + " ORDER BY id DESC LIMIT ?", [*params, limit])
         return [{**dict(r), "late": bool(r["late"])} for r in rows]
 
-    # helpers
+    # helpers (table and column names below come from code, never from input)
 
-    def _update(self, table: str, row_id: int, fields: dict[str, Any], allowed: set[str]) -> None:
-        unknown = set(fields) - allowed
-        if unknown:
-            raise ValueError(f"Unknown fields for {table}: {sorted(unknown)}")
-        if not fields:
-            return
-        cols = ", ".join(f"{k} = ?" for k in fields)
-        self._x(f"UPDATE {table} SET {cols} WHERE id = ?", [*fields.values(), row_id])
+    def _select(self, table: str, include_inactive: bool) -> list[sqlite3.Row]:
+        sql = f"SELECT * FROM {table} WHERE deleted_at IS NULL"
+        if not include_inactive:
+            sql += " AND active = 1"
+        return self._x(sql + " ORDER BY sort, id").fetchall()
+
+    def _get(self, table: str, row_id: int) -> sqlite3.Row | None:
+        row: sqlite3.Row | None = self._x(
+            f"SELECT * FROM {table} WHERE id = ? AND deleted_at IS NULL", [row_id]
+        ).fetchone()
+        return row
+
+    def _save(self, table: str, row_id: int, fields: dict[str, Any]) -> int:
+        if row_id:
+            cols = ", ".join(f"{k} = ?" for k in fields)
+            self._x(f"UPDATE {table} SET {cols} WHERE id = ?", [*fields.values(), row_id])
+            return row_id
+        marks = ", ".join("?" * len(fields))
+        cur = self._x(
+            f"INSERT INTO {table} ({', '.join(fields)}) VALUES ({marks}) RETURNING id",
+            list(fields.values()),
+        )
+        return _returned_id(cur)
 
     def _soft_delete(self, table: str, row_id: int) -> None:
         self._x(f"UPDATE {table} SET deleted_at = ? WHERE id = ?", [now_iso(), row_id])
@@ -862,25 +834,19 @@ class Repo:
 # --- Row mapping --------------------------------------------------------------
 
 
-def _id(cur: sqlite3.Cursor) -> int:
-    assert cur.lastrowid is not None
-    return cur.lastrowid
+def _where(**conds: Any) -> tuple[str, list[Any]]:
+    """`WHERE a = ? AND b = ?` for the conditions that are not None."""
+    used = {k: v for k, v in conds.items() if v is not None}
+    if not used:
+        return "", []
+    return "WHERE " + " AND ".join(f"{k} = ?" for k in used), list(used.values())
 
 
-def instance_snapshot(inst: Instance) -> dict[str, Any]:
-    """Everything needed to recreate an instance row (D46)."""
-    return {
-        "id": inst.id,
-        "kid_id": inst.kid_id,
-        "chore_id": inst.chore_id,
-        "day": inst.day.isoformat(),
-        "type": inst.type.value,
-        "slot": inst.slot.value,
-        "name": inst.name,
-        "icon": inst.icon,
-        "values": {str(k): v for k, v in inst.values.items()},
-        "status": inst.status.value,
-    }
+def _returned_id(cur: sqlite3.Cursor) -> int:
+    row = cur.fetchone()
+    if row is None:
+        raise sqlite3.DatabaseError("INSERT … RETURNING id returned no row")
+    return int(row[0])
 
 
 def _json_or_none(value: Any) -> str | None:

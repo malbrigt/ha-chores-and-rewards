@@ -26,7 +26,8 @@ from . import ChoresConfigEntry
 from .const import DOMAIN, NAME, SIGNAL_UPDATED
 from .db import Repo
 from .logic import Balance, Currency, Kid, week_start
-from .store import ChoresStore, week_balances
+from .store import ChoresStore
+from .views import week_balances
 
 _LOGGER = logging.getLogger(__name__)
 

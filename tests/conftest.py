@@ -5,9 +5,9 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.chores_and_rewards.const import CONF_PIN_HASH, DOMAIN
 
-pytest_plugins = "pytest_homeassistant_custom_component"
+from .ws_helpers import TEST_PIN
 
-TEST_PIN = "1234"
+pytest_plugins = "pytest_homeassistant_custom_component"
 
 
 @pytest.fixture(autouse=True)

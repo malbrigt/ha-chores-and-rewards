@@ -44,17 +44,14 @@ def test_lock_and_bad_tokens(sessions):
     assert not sessions.touch(None)
     assert not sessions.touch("nope")
     a, b = sessions.unlock(True), sessions.unlock(True)
-    assert a != b
-    sessions.lock_all()
-    assert not sessions.touch(a) and not sessions.touch(b)
+    assert a != b and sessions.touch(a) and sessions.touch(b)
 
 
 def test_lockout_after_five_failures(sessions, clock):
     """AC-7.2."""
-    for left in (4, 3, 2, 1):
+    for _ in range(4):
         with pytest.raises(RuleError, match="wrong_pin"):
             sessions.unlock(False)
-        assert sessions.attempts_left == left
     with pytest.raises(RuleError, match="locked_out"):
         sessions.unlock(False)
     with pytest.raises(RuleError, match="locked_out"):
@@ -62,7 +59,6 @@ def test_lockout_after_five_failures(sessions, clock):
     assert sessions.locked_out_for() == 60
     clock.t += 60
     assert sessions.touch(sessions.unlock(True))
-    assert sessions.attempts_left == 5
 
 
 def _fail_until_locked(sessions):
@@ -83,23 +79,12 @@ def test_lockout_escalates_and_correct_pin_resets(sessions, clock):
     assert sessions.locked_out_for() == 60
 
 
-def test_reset_clears_lockout_and_sessions(sessions, clock):
-    token = sessions.unlock(True)
-    _fail_until_locked(sessions)
-    sessions.reset()
-    assert sessions.locked_out_for() == 0
-    assert not sessions.touch(token)
-    assert sessions.attempts_left == 5
-    _fail_until_locked(sessions)
-    assert sessions.locked_out_for() == 60  # ladder restarted
-
-
 def test_success_resets_failures(sessions):
     for _ in range(4):
         with pytest.raises(RuleError):
             sessions.unlock(False)
     sessions.unlock(True)
-    assert sessions.attempts_left == 5
+    _fail_until_locked(sessions)  # the count started again: five more to lock
 
 
 def test_expired_sessions_purged_on_unlock(sessions, clock):

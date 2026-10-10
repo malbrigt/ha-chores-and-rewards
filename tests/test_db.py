@@ -19,8 +19,10 @@ from custom_components.chores_and_rewards.logic import (
     Chore,
     ChoreType,
     Currency,
+    Kid,
     Slot,
     Status,
+    WeekStatus,
     instances_for_day,
 )
 
@@ -72,7 +74,7 @@ def test_upgrade_backs_up_and_applies(tmp_path, monkeypatch):
     path = tmp_path / "chores.db"
     Database(path).migrate()
     db = Database(path)
-    db.run(lambda r: r.add_kid("Ada"))
+    db.run(lambda r: r.save_kid(Kid(0, "Ada")))
     monkeypatch.setattr(dbmod, "MIGRATIONS", [*dbmod.MIGRATIONS, "ALTER TABLE kids ADD x INT;"])
     monkeypatch.setattr(dbmod, "SCHEMA_VERSION", SCHEMA_VERSION + 1)
     assert db.migrate() == SCHEMA_VERSION + 1
@@ -103,7 +105,7 @@ def test_refuses_newer_schema(db, monkeypatch):
 
 def test_transaction_rolls_back_on_error(db):
     def boom(r):
-        r.add_kid("Ghost")
+        r.save_kid(Kid(0, "Ghost"))
         raise ValueError
 
     with pytest.raises(ValueError):
@@ -112,7 +114,7 @@ def test_transaction_rolls_back_on_error(db):
 
 
 def test_backup_and_checkpoint(db, tmp_path):
-    db.run(lambda r: r.add_kid("Ada"))
+    db.run(lambda r: r.save_kid(Kid(0, "Ada")))
     db.checkpoint()
     db.backup(tmp_path / "copy.db")
     assert [k.name for k in Database(tmp_path / "copy.db").run(lambda r: r.list_kids())] == ["Ada"]
@@ -145,21 +147,19 @@ def test_weekday_mask_roundtrip():
 
 
 def test_kids_crud_order_and_soft_delete(db):
-    a = db.run(lambda r: r.add_kid("Ada", sort=2))
-    b = db.run(lambda r: r.add_kid("Bo", sort=1))
+    a = db.run(lambda r: r.save_kid(Kid(0, "Ada", sort=2)))
+    b = db.run(lambda r: r.save_kid(Kid(0, "Bo", sort=1)))
     assert [k.name for k in db.run(lambda r: r.list_kids())] == ["Bo", "Ada"]
-    db.run(lambda r: r.update_kid(b, active=False))
+    db.run(lambda r: r.save_kid(Kid(b, "Bo", sort=1, active=False)))
     assert [k.id for k in db.run(lambda r: r.list_kids())] == [a]
     assert len(db.run(lambda r: r.list_kids(include_inactive=True))) == 2
     db.run(lambda r: r.delete_kid(a))
     assert db.run(lambda r: r.get_kid(a)) is None
     assert db.run(lambda r: r.get_kid(b)).name == "Bo"
-    with pytest.raises(ValueError):
-        db.run(lambda r: r.update_kid(b, bogus=1))
 
 
 def test_kid_max(db):
-    kid = db.run(lambda r: r.add_kid("Ada"))
+    kid = db.run(lambda r: r.save_kid(Kid(0, "Ada")))
     db.run(lambda r: r.set_kid_max(kid, 1, 90))
     assert db.run(lambda r: r.kid_max(kid)) == {1: 90}
     db.run(lambda r: r.set_kid_max(kid, 1, None))
@@ -168,11 +168,12 @@ def test_kid_max(db):
 
 def test_currency_crud(db):
     cid = db.run(
-        lambda r: r.add_currency(
+        lambda r: r.save_currency(
             Currency(0, "Stars", "★", payout_weekday=6, can_be_lost=False, default_max=5)
         )
     )
-    db.run(lambda r: r.update_currency(cid, cap_mode="pot", active=False))
+    old = db.run(lambda r: r.get_currency(cid))
+    db.run(lambda r: r.save_currency(replace(old, cap_mode=CapMode.POT, active=False)))
     assert [c.id for c in db.run(lambda r: r.list_currencies())] == [1, 2]
     got = next(c for c in db.run(lambda r: r.list_currencies(True)) if c.id == cid)
     assert got.cap_mode is CapMode.POT and not got.active
@@ -182,23 +183,25 @@ def test_currency_crud(db):
 
 def test_check_constraints(db):
     with pytest.raises(sqlite3.IntegrityError):
-        db.run(lambda r: r.add_currency(Currency(0, "X", "x", payout_weekday=7, can_be_lost=False)))
+        db.run(
+            lambda r: r.save_currency(Currency(0, "X", "x", payout_weekday=7, can_be_lost=False))
+        )
 
 
 # --- chores -------------------------------------------------------------------
 
 
 def test_chore_roundtrip_and_update(db):
-    ada = db.run(lambda r: r.add_kid("Ada"))
-    bo = db.run(lambda r: r.add_kid("Bo"))
-    cid = db.run(lambda r: r.add_chore(_chore({ada, bo})))
+    ada = db.run(lambda r: r.save_kid(Kid(0, "Ada")))
+    bo = db.run(lambda r: r.save_kid(Kid(0, "Bo")))
+    cid = db.run(lambda r: r.save_chore(_chore({ada, bo})))
     chore = db.run(lambda r: r.get_chore(cid))
     assert chore.kid_ids == {ada, bo} and chore.values == {1: 30, 2: 10}
     assert chore.weekdays == {0, 2} and chore.type is ChoreType.EXPECTED
-    db.run(lambda r: r.update_chore(replace(chore, kid_ids=frozenset({bo}), values={2: 0, 1: 5})))
+    db.run(lambda r: r.save_chore(replace(chore, kid_ids=frozenset({bo}), values={2: 0, 1: 5})))
     chore = db.run(lambda r: r.get_chore(cid))
     assert chore.kid_ids == {bo} and chore.values == {1: 5}  # zero values are dropped
-    db.run(lambda r: r.update_chore(replace(chore, active=False)))
+    db.run(lambda r: r.save_chore(replace(chore, active=False)))
     assert db.run(lambda r: r.list_chores()) == []
     db.run(lambda r: r.delete_chore(cid))
     assert db.run(lambda r: r.get_chore(cid)) is None
@@ -208,8 +211,8 @@ def test_chore_roundtrip_and_update(db):
 
 
 def _setup_instances(db):
-    ada = db.run(lambda r: r.add_kid("Ada"))
-    cid = db.run(lambda r: r.add_chore(_chore({ada})))
+    ada = db.run(lambda r: r.save_kid(Kid(0, "Ada")))
+    cid = db.run(lambda r: r.save_chore(_chore({ada})))
     chores = db.run(lambda r: r.list_chores())
     db.run(lambda r: r.insert_instances(instances_for_day(chores, [ada], MON)))
     return ada, cid
@@ -254,7 +257,7 @@ def test_resync_pending_keeps_history(db):
 
 def test_delete_pending(db):
     ada, cid = _setup_instances(db)
-    bo = db.run(lambda r: r.add_kid("Bo"))
+    bo = db.run(lambda r: r.save_kid(Kid(0, "Bo")))
     chore = db.run(lambda r: r.get_chore(cid))
     db.run(
         lambda r: r.insert_instances(
@@ -277,23 +280,22 @@ def test_close_week(db):
     assert db.run(lambda r: r.week_status(MON)) == "closed"
     assert db.run(lambda r: r.open_weeks()) == []
     assert db.run(lambda r: r.week_status(date(2020, 1, 6))) is None
-    assert db.run(lambda r: r.list_weeks())[0]["closed_by"] == "auto"
+    assert db.run(lambda r: r.week_status(MON)) is WeekStatus.CLOSED
 
 
 def test_adjustments_require_note(db):
     """AC-7.6."""
-    ada = db.run(lambda r: r.add_kid("Ada"))
+    ada = db.run(lambda r: r.save_kid(Kid(0, "Ada")))
     db.run(lambda r: r.add_adjustment(MON, ada, 1, 15, "helped grandma", by="u1"))
     db.run(lambda r: r.add_adjustment(MON, ada, 1, -5, "fight", by="u1"))
-    assert db.run(lambda r: r.adjustment_total(MON, ada, 1)) == 10
-    assert db.run(lambda r: r.adjustment_total(MON, ada, 2)) == 0
+    assert db.run(lambda r: r.adjustment_totals(MON)) == {(ada, 1): 10}
     assert len(db.run(lambda r: r.list_adjustments(MON))) == 2
     with pytest.raises(sqlite3.IntegrityError):
         db.run(lambda r: r.add_adjustment(MON, ada, 1, 5, "  ", by="u1"))
 
 
 def test_payouts(db):
-    ada = db.run(lambda r: r.add_kid("Ada"))
+    ada = db.run(lambda r: r.save_kid(Kid(0, "Ada")))
     db.run(lambda r: r.record_payout(MON, ada, 1, 90, by="u1"))
     db.run(lambda r: r.record_payout(MON, ada, 1, 100, by="u1"))  # re-tick replaces
     payouts = db.run(lambda r: r.list_payouts(MON))
@@ -306,7 +308,7 @@ def test_audit_log(db):
     """AC-7.7."""
     db.run(
         lambda r: r.audit(
-            "reject",
+            "set_status",
             user_id="u1",
             entity="instance",
             entity_id=5,
@@ -315,8 +317,8 @@ def test_audit_log(db):
         )
     )
     db.run(lambda r: r.audit("close_week", user_id=None))
-    log = db.run(lambda r: r.list_audit(actions=["close_week", "reject"]))
-    assert [e["action"] for e in log] == ["close_week", "reject"]
+    log = db.run(lambda r: r.list_audit(actions=["close_week", "set_status"]))
+    assert [e["action"] for e in log] == ["close_week", "set_status"]
     assert log[1]["entity_id"] == 5 and '"rejected"' in log[1]["after"]
     assert log[0]["before"] is None
 
@@ -328,8 +330,8 @@ def test_foreign_keys_enforced(db):
 
 def test_insert_instances_derives_week_per_day(db):
     """Instances spanning two weeks land in the right week rows."""
-    ada = db.run(lambda r: r.add_kid("Ada"))
-    db.run(lambda r: r.add_chore(_chore({ada}, weekdays=frozenset())))
+    ada = db.run(lambda r: r.save_kid(Kid(0, "Ada")))
+    db.run(lambda r: r.save_chore(_chore({ada}, weekdays=frozenset())))
     chores = db.run(lambda r: r.list_chores())
     sun, mon = date(2026, 10, 11), date(2026, 10, 12)
     rows = [*instances_for_day(chores, [ada], sun), *instances_for_day(chores, [ada], mon)]
@@ -361,7 +363,7 @@ def test_legacy_pre_02_file_is_set_aside(tmp_path, caplog):
 def test_audit_filters(db):
     """D44: filter by action, kid, week (chore's day) and late."""
     tue = date(2026, 10, 6)
-    db.run(lambda r: [r.add_kid("Ada"), r.add_kid("Bo")])
+    db.run(lambda r: [r.save_kid(Kid(0, "Ada")), r.save_kid(Kid(0, "Bo"))])
     db.run(lambda r: r.audit("check", user_id="u", kid_id=1, day=MON, late=False))
     db.run(lambda r: r.audit("check", user_id="u", kid_id=1, day=MON, late=True))
     db.run(lambda r: r.audit("uncheck", user_id="u", kid_id=2, day=tue))
@@ -408,8 +410,8 @@ def test_check_constraints_reject_bad_rows(db, sql):
 
 
 def test_instance_week_must_match_day(db):
-    ada = db.run(lambda r: r.add_kid("Ada"))
-    cid = db.run(lambda r: r.add_chore(_chore({ada})))
+    ada = db.run(lambda r: r.save_kid(Kid(0, "Ada")))
+    cid = db.run(lambda r: r.save_chore(_chore({ada})))
     db.run(lambda r: [r.ensure_week(MON), r.ensure_week(date(2026, 10, 12))])
     insert = (
         "INSERT INTO instances (week, kid_id, chore_id, day, type, slot, name)"
@@ -421,8 +423,8 @@ def test_instance_week_must_match_day(db):
 
 
 def test_done_needs_status_at(db):
-    ada = db.run(lambda r: r.add_kid("Ada"))
-    cid = db.run(lambda r: r.add_chore(_chore({ada})))
+    ada = db.run(lambda r: r.save_kid(Kid(0, "Ada")))
+    cid = db.run(lambda r: r.save_chore(_chore({ada})))
     db.run(lambda r: r.ensure_week(MON))
     with pytest.raises(sqlite3.IntegrityError):
         _raw(
@@ -435,14 +437,14 @@ def test_done_needs_status_at(db):
 
 def test_unique_active_names_case_insensitive(db):
     """D45: no two active kids/chores/currencies share a name; deleted ones don't count."""
-    ada = db.run(lambda r: r.add_kid("Ada"))
+    ada = db.run(lambda r: r.save_kid(Kid(0, "Ada")))
     with pytest.raises(sqlite3.IntegrityError, match="UNIQUE"):
-        db.run(lambda r: r.add_kid("ada"))
+        db.run(lambda r: r.save_kid(Kid(0, "ada")))
     db.run(lambda r: r.delete_kid(ada))
-    assert db.run(lambda r: r.add_kid("Ada"))
+    assert db.run(lambda r: r.save_kid(Kid(0, "Ada")))
     with pytest.raises(sqlite3.IntegrityError, match="UNIQUE"):
         db.run(
-            lambda r: r.add_currency(
+            lambda r: r.save_currency(
                 Currency(0, "skjermtid", "min", payout_weekday=4, can_be_lost=False)
             )
         )
@@ -464,8 +466,8 @@ def test_instance_values_normalized_with_fk_and_cascade(db):
 
 def test_every_day_has_one_representation(db):
     """D17/D45: empty weekdays are stored as all days and read back as empty."""
-    ada = db.run(lambda r: r.add_kid("Ada"))
-    cid = db.run(lambda r: r.add_chore(_chore({ada}, weekdays=frozenset())))
+    ada = db.run(lambda r: r.save_kid(Kid(0, "Ada")))
+    cid = db.run(lambda r: r.save_chore(_chore({ada}, weekdays=frozenset())))
     assert db.run(lambda r: r.get_chore(cid)).weekdays == frozenset()
     with closing(sqlite3.connect(db.path)) as conn:
         assert conn.execute("SELECT weekdays FROM chores").fetchone()[0] == 127

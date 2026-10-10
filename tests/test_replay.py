@@ -1,26 +1,11 @@
 """D46: the full usage of the integration can be replayed from the audit log."""
 
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
 import pytest
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from .replay import replay, snapshot
-from .ws_helpers import chore, err, ok, unlock
+from .ws_helpers import chore, err, kid_board, midnight, ok, unlock
 
 pytestmark = pytest.mark.freeze_time("2026-10-12 08:00:00+00:00")  # Mon 10:00 Oslo
-OSLO = ZoneInfo("Europe/Oslo")
-
-
-async def _midnight(hass, freezer, day, hour=0):
-    freezer.move_to(datetime(2026, 10, day, hour, 0, 0, tzinfo=OSLO))
-    async_fire_time_changed(hass)
-    await hass.async_block_till_done()
-
-
-async def _board(ws, kid):
-    return (await ok(ws, "get_state"))["board"][str(kid)]
 
 
 async def test_every_change_is_replayable_from_the_audit_log(hass, ws, freezer):
@@ -57,7 +42,7 @@ async def test_every_change_is_replayable_from_the_audit_log(hass, ws, freezer):
     await ok(ws, "admin/settings/save", token=token, settings={"idle_seconds": 90})
 
     # Kid taps and parent decisions.
-    ada_rows = await _board(ws, ada)
+    ada_rows = await kid_board(ws, ada)
     dish, win = ada_rows["chores"][0], ada_rows["bonus"][0]
     await ok(ws, "set_done", instance_id=dish["id"], done=True)
     await ok(ws, "set_done", instance_id=win["id"], done=True)
@@ -70,7 +55,7 @@ async def test_every_change_is_replayable_from_the_audit_log(hass, ws, freezer):
     await ok(ws, "pin/lock", token=token)
 
     # Midnight: missed + new day; a kid fixes yesterday (late).
-    await _midnight(hass, freezer, 13, hour=18)
+    await midnight(hass, freezer, 13, hour=18)
     yesterday = await ok(ws, "get_state", day="2026-10-12")
     await ok(ws, "set_done", instance_id=yesterday["board"][str(ada)]["bonus"][0]["id"], done=True)
     token = await unlock(ws)
@@ -81,7 +66,7 @@ async def test_every_change_is_replayable_from_the_audit_log(hass, ws, freezer):
     await ok(ws, "admin/chore/delete", token=token, chore_id=windows)
 
     # HA "off" until next Tuesday: catch-up, auto-close, new week.
-    await _midnight(hass, freezer, 20, hour=7)
+    await midnight(hass, freezer, 20, hour=7)
 
     store = ws.entry.runtime_data
     log = await store.async_read(lambda r: r.list_audit(100_000))
