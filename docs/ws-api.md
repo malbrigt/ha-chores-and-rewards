@@ -18,6 +18,7 @@ The panel talks to the integration over HA's WebSocket connection (`hass.connect
 | `wrong_pin` | Wrong PIN. |
 | `locked_out` | Too many wrong PINs. Wait, then try again (AC-7.2). |
 | `not_found` | Unknown or deleted id. |
+| `duplicate_name` | An active kid, chore or currency already has that name (case-insensitive). |
 | `not_loaded` | The integration isn't set up. |
 | `not_today`, `not_allowed`, `not_done`, `future_day`, `week_closed` | Status-change refusals from `logic.transition`. |
 | `invalid_format` | The schema rejected the message (HA built-in). |

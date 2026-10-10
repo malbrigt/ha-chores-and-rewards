@@ -121,7 +121,7 @@ def rollover(repo: Repo, today: date) -> int:
             repo.set_last_finalized(day)
     for week in weeks_to_close(repo.open_weeks(), today):
         repo.close_week(week, by=SYSTEM_USER)
-        repo.audit("close_week", user_id=SYSTEM_USER, entity="week", entity_id=week, note="auto")
+        repo.audit("close_week", user_id=SYSTEM_USER, entity="week", day=week, note="auto")
     ensure_today(repo, today)
     return len(days)
 

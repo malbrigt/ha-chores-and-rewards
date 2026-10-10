@@ -8,6 +8,7 @@ connection, runs one transaction and closes it, so there is no cross-thread shar
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import closing, contextmanager
@@ -17,149 +18,185 @@ from typing import Any
 
 from .logic import CapMode, Chore, ChoreType, Currency, Instance, Kid, Slot, Status, week_start
 
-# --- Schema -------------------------------------------------------------------
+_LOGGER = logging.getLogger(__name__)
 
-_V1 = """
-CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
-CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+# --- Schema -------------------------------------------------------------------
+# Conventions (D45): STRICT tables; booleans INTEGER CHECK IN (0,1); dates TEXT
+# 'YYYY-MM-DD' checked with date(); timestamps TEXT ISO-8601 UTC checked with datetime();
+# amounts INTEGER; every FK child column indexed; soft delete via deleted_at with partial
+# unique indexes on names. Schema version lives in PRAGMA user_version.
+
+_SCHEMA = """
+CREATE TABLE meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+) STRICT;
+
+CREATE TABLE settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL CHECK (json_valid(value))
+) STRICT;
 
 CREATE TABLE kids (
     id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
+    name TEXT NOT NULL CHECK (length(trim(name)) > 0),
     sort INTEGER NOT NULL DEFAULT 0,
-    active INTEGER NOT NULL DEFAULT 1,
-    deleted_at TEXT
-);
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+    deleted_at TEXT CHECK (deleted_at IS NULL OR datetime(deleted_at) IS NOT NULL)
+) STRICT;
+CREATE UNIQUE INDEX kids_name ON kids (name COLLATE NOCASE) WHERE deleted_at IS NULL;
 
 CREATE TABLE currencies (
     id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    unit TEXT NOT NULL,
+    name TEXT NOT NULL CHECK (length(trim(name)) > 0),
+    unit TEXT NOT NULL CHECK (length(trim(unit)) > 0),
     icon TEXT NOT NULL DEFAULT '',
     payout_weekday INTEGER NOT NULL CHECK (payout_weekday BETWEEN 0 AND 6),
-    can_be_lost INTEGER NOT NULL,
+    can_be_lost INTEGER NOT NULL CHECK (can_be_lost IN (0, 1)),
     cap_mode TEXT NOT NULL CHECK (cap_mode IN ('fixed', 'pot')),
-    default_max INTEGER,
-    active INTEGER NOT NULL DEFAULT 1,
+    default_max INTEGER CHECK (default_max IS NULL OR default_max >= 0),
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
     sort INTEGER NOT NULL DEFAULT 0,
-    deleted_at TEXT
-);
+    deleted_at TEXT CHECK (deleted_at IS NULL OR datetime(deleted_at) IS NOT NULL)
+) STRICT;
+CREATE UNIQUE INDEX currencies_name ON currencies (name COLLATE NOCASE)
+    WHERE deleted_at IS NULL;
 
 CREATE TABLE kid_currency_max (
-    kid_id INTEGER NOT NULL REFERENCES kids(id),
-    currency_id INTEGER NOT NULL REFERENCES currencies(id),
-    weekly_max INTEGER NOT NULL,
+    kid_id INTEGER NOT NULL REFERENCES kids (id),
+    currency_id INTEGER NOT NULL REFERENCES currencies (id),
+    weekly_max INTEGER NOT NULL CHECK (weekly_max >= 0),
     PRIMARY KEY (kid_id, currency_id)
-);
+) STRICT;
+CREATE INDEX kid_currency_max_currency ON kid_currency_max (currency_id);
 
 CREATE TABLE chores (
     id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
+    name TEXT NOT NULL CHECK (length(trim(name)) > 0),
     icon TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL DEFAULT '',
     type TEXT NOT NULL CHECK (type IN ('expected', 'bonus')),
     slot TEXT NOT NULL CHECK (slot IN ('morning', 'afternoon', 'anytime')),
-    weekdays INTEGER NOT NULL DEFAULT 0,  -- bitmask, bit 0 = Monday; 0 = every day
-    active INTEGER NOT NULL DEFAULT 1,
+    weekdays INTEGER NOT NULL CHECK (weekdays BETWEEN 1 AND 127),  -- bit 0 = Monday
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
     sort INTEGER NOT NULL DEFAULT 0,
-    deleted_at TEXT
-);
+    deleted_at TEXT CHECK (deleted_at IS NULL OR datetime(deleted_at) IS NOT NULL)
+) STRICT;
+CREATE UNIQUE INDEX chores_name ON chores (name COLLATE NOCASE) WHERE deleted_at IS NULL;
 
 CREATE TABLE chore_kids (
-    chore_id INTEGER NOT NULL REFERENCES chores(id),
-    kid_id INTEGER NOT NULL REFERENCES kids(id),
+    chore_id INTEGER NOT NULL REFERENCES chores (id),
+    kid_id INTEGER NOT NULL REFERENCES kids (id),
     PRIMARY KEY (chore_id, kid_id)
-);
+) STRICT;
+CREATE INDEX chore_kids_kid ON chore_kids (kid_id);
 
 CREATE TABLE chore_values (
-    chore_id INTEGER NOT NULL REFERENCES chores(id),
-    currency_id INTEGER NOT NULL REFERENCES currencies(id),
-    value INTEGER NOT NULL,
+    chore_id INTEGER NOT NULL REFERENCES chores (id),
+    currency_id INTEGER NOT NULL REFERENCES currencies (id),
+    value INTEGER NOT NULL CHECK (value > 0),
     PRIMARY KEY (chore_id, currency_id)
-);
+) STRICT;
+CREATE INDEX chore_values_currency ON chore_values (currency_id);
 
 CREATE TABLE weeks (
-    start TEXT PRIMARY KEY,  -- Monday, ISO date
+    start TEXT PRIMARY KEY
+        CHECK (start IS date(start, '+0 days') AND strftime('%u', start) = '1'),
     status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed')),
-    closed_at TEXT,
-    closed_by TEXT
-);
+    closed_at TEXT CHECK (closed_at IS NULL OR datetime(closed_at) IS NOT NULL),
+    closed_by TEXT,
+    CHECK ((status = 'closed') = (closed_at IS NOT NULL))
+) STRICT;
 
+-- One chore for one kid on one day. type/slot/name/icon and instance_values are a
+-- snapshot of the chore at that time (D6). week is derived from day; the CHECK keeps
+-- it consistent and the FK ties rows to their week.
 CREATE TABLE instances (
     id INTEGER PRIMARY KEY,
-    week TEXT NOT NULL REFERENCES weeks(start),
-    kid_id INTEGER NOT NULL REFERENCES kids(id),
-    chore_id INTEGER NOT NULL REFERENCES chores(id),
-    day TEXT NOT NULL,
-    type TEXT NOT NULL,
-    slot TEXT NOT NULL,
+    week TEXT NOT NULL REFERENCES weeks (start)
+        CHECK (week = date(day, '-6 days', 'weekday 1')),
+    kid_id INTEGER NOT NULL REFERENCES kids (id),
+    chore_id INTEGER NOT NULL REFERENCES chores (id),
+    day TEXT NOT NULL CHECK (day IS date(day, '+0 days')),
+    type TEXT NOT NULL CHECK (type IN ('expected', 'bonus')),
+    slot TEXT NOT NULL CHECK (slot IN ('morning', 'afternoon', 'anytime')),
     name TEXT NOT NULL,
     icon TEXT NOT NULL DEFAULT '',
-    "values" TEXT NOT NULL,  -- JSON {currency_id: value}, snapshot
     status TEXT NOT NULL DEFAULT 'pending'
         CHECK (status IN ('pending', 'done', 'missed', 'excused', 'rejected')),
-    status_at TEXT,
+    status_at TEXT CHECK (status_at IS NULL OR datetime(status_at) IS NOT NULL),
     status_by TEXT,
-    UNIQUE (kid_id, chore_id, day)
-);
+    UNIQUE (kid_id, chore_id, day),
+    CHECK (status = 'pending' OR status_at IS NOT NULL)
+) STRICT;
 CREATE INDEX instances_week_kid ON instances (week, kid_id);
 CREATE INDEX instances_day ON instances (day);
+CREATE INDEX instances_chore ON instances (chore_id);
+
+CREATE TABLE instance_values (
+    instance_id INTEGER NOT NULL REFERENCES instances (id) ON DELETE CASCADE,
+    currency_id INTEGER NOT NULL REFERENCES currencies (id),
+    value INTEGER NOT NULL CHECK (value > 0),
+    PRIMARY KEY (instance_id, currency_id)
+) STRICT;
+CREATE INDEX instance_values_currency ON instance_values (currency_id);
 
 CREATE TABLE adjustments (
     id INTEGER PRIMARY KEY,
-    week TEXT NOT NULL REFERENCES weeks(start),
-    kid_id INTEGER NOT NULL REFERENCES kids(id),
-    currency_id INTEGER NOT NULL REFERENCES currencies(id),
-    amount INTEGER NOT NULL,
+    week TEXT NOT NULL REFERENCES weeks (start),
+    kid_id INTEGER NOT NULL REFERENCES kids (id),
+    currency_id INTEGER NOT NULL REFERENCES currencies (id),
+    amount INTEGER NOT NULL CHECK (amount <> 0),
     note TEXT NOT NULL CHECK (length(trim(note)) > 0),
-    created_at TEXT NOT NULL,
+    created_at TEXT NOT NULL CHECK (datetime(created_at) IS NOT NULL),
     created_by TEXT
-);
+) STRICT;
+CREATE INDEX adjustments_week_kid ON adjustments (week, kid_id);
+CREATE INDEX adjustments_kid ON adjustments (kid_id);
+CREATE INDEX adjustments_currency ON adjustments (currency_id);
 
 CREATE TABLE payouts (
     id INTEGER PRIMARY KEY,
-    week TEXT NOT NULL REFERENCES weeks(start),
-    kid_id INTEGER NOT NULL REFERENCES kids(id),
-    currency_id INTEGER NOT NULL REFERENCES currencies(id),
-    amount INTEGER NOT NULL,
-    done_at TEXT NOT NULL,
+    week TEXT NOT NULL REFERENCES weeks (start),
+    kid_id INTEGER NOT NULL REFERENCES kids (id),
+    currency_id INTEGER NOT NULL REFERENCES currencies (id),
+    amount INTEGER NOT NULL CHECK (amount >= 0),
+    done_at TEXT NOT NULL CHECK (datetime(done_at) IS NOT NULL),
     done_by TEXT,
     UNIQUE (week, kid_id, currency_id)
-);
+) STRICT;
+CREATE INDEX payouts_kid ON payouts (kid_id);
+CREATE INDEX payouts_currency ON payouts (currency_id);
 
+-- Append-only history (polymorphic: entity + entity_id, no FK to the entity itself).
+-- kid_id/day/late make the log filterable (D43, D44); day is the chore's day, or the
+-- week's Monday for week and payout actions.
 CREATE TABLE audit_log (
     id INTEGER PRIMARY KEY,
-    ts TEXT NOT NULL,
+    ts TEXT NOT NULL CHECK (datetime(ts) IS NOT NULL),
     user_id TEXT,
     action TEXT NOT NULL,
     entity TEXT,
-    entity_id TEXT,
-    before TEXT,
-    after TEXT,
-    note TEXT
-);
+    entity_id INTEGER,
+    before TEXT CHECK (before IS NULL OR json_valid(before)),
+    after TEXT CHECK (after IS NULL OR json_valid(after)),
+    note TEXT,
+    kid_id INTEGER REFERENCES kids (id),
+    day TEXT CHECK (day IS NULL OR day IS date(day, '+0 days')),
+    late INTEGER NOT NULL DEFAULT 0 CHECK (late IN (0, 1))
+) STRICT;
+CREATE INDEX audit_kid_day ON audit_log (kid_id, day);
+CREATE INDEX audit_day ON audit_log (day);
+CREATE INDEX audit_ts ON audit_log (ts);
 
 INSERT INTO currencies (name, unit, icon, payout_weekday, can_be_lost, cap_mode, sort)
 VALUES ('Skjermtid', 'min', 'mdi:tablet', 4, 1, 'fixed', 0),
        ('Ukepenger', 'kr', 'mdi:cash', 5, 0, 'pot', 1);
 """
 
-# v2: audit rows carry the kid, the chore's day and a late flag, so the log can be
-# filtered (D43, D44). Backfills kid/day for existing rows.
-_V2 = """
-ALTER TABLE audit_log ADD COLUMN kid_id INTEGER;
-ALTER TABLE audit_log ADD COLUMN day TEXT;
-ALTER TABLE audit_log ADD COLUMN late INTEGER NOT NULL DEFAULT 0;
-UPDATE audit_log SET kid_id = CAST(entity_id AS INTEGER) WHERE entity = 'kid';
-UPDATE audit_log SET
-    kid_id = (SELECT i.kid_id FROM instances i WHERE i.id = CAST(audit_log.entity_id AS INT)),
-    day = (SELECT i.day FROM instances i WHERE i.id = CAST(audit_log.entity_id AS INT))
-    WHERE entity = 'instance';
-CREATE INDEX audit_kid_day ON audit_log (kid_id, day);
-"""
-
-# Index i holds the script that upgrades schema version i to i + 1.
-MIGRATIONS: list[str] = [_V1, _V2]
+# Index i holds the script that upgrades schema version i to i + 1 (PRAGMA user_version).
+# One clean schema for now (step 12); add scripts here for future changes.
+MIGRATIONS: list[str] = [_SCHEMA]
 SCHEMA_VERSION = len(MIGRATIONS)
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -177,11 +214,18 @@ def now_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+ALL_DAYS = 0b1111111
+
+
 def weekdays_to_mask(days: Iterable[int]) -> int:
-    return sum(1 << d for d in set(days))
+    """Bitmask, bit 0 = Monday. An empty set ("every day", D17) is stored as all days."""
+    return sum(1 << d for d in set(days)) or ALL_DAYS
 
 
 def mask_to_weekdays(mask: int) -> frozenset[int]:
+    """All days come back as the empty set, so "every day" has one representation (D17)."""
+    if mask == ALL_DAYS:
+        return frozenset()
     return frozenset(d for d in range(7) if mask & (1 << d))
 
 
@@ -195,17 +239,20 @@ class Database:
         self.path = Path(path)
 
     def _connect(self) -> sqlite3.Connection:
+        # timeout=5 installs SQLite's busy handler (same as PRAGMA busy_timeout = 5000).
         conn = sqlite3.connect(self.path, timeout=5)
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.execute("PRAGMA busy_timeout = 5000")
+        conn.execute("PRAGMA foreign_keys = ON")  # per connection, off by default
+        conn.execute("PRAGMA synchronous = NORMAL")  # safe with WAL, fewer fsyncs
         return conn
 
     @contextmanager
     def transaction(self) -> Iterator[Repo]:
         """One connection, one transaction: commit on success, roll back on error."""
-        with closing(self._connect()) as conn, conn:
-            yield Repo(conn)
+        with closing(self._connect()) as conn:
+            with conn:
+                yield Repo(conn)
+            conn.execute("PRAGMA optimize")  # recommended before closing short-lived connections
 
     def run[T](self, fn: Callable[[Repo], T]) -> T:
         """Run `fn(repo)` in one transaction. Use with async_add_executor_job."""
@@ -218,8 +265,9 @@ class Database:
 
     def migrate(self) -> int:
         """Bring the schema up to date. Backs up the file before upgrading existing data."""
+        self._reset_legacy()
         with closing(self._connect()) as conn:
-            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA journal_mode = WAL")  # persistent once set
             current = _read_version(conn)
             if current > SCHEMA_VERSION:
                 raise RuntimeError(f"Database schema v{current} is newer than this code")
@@ -227,12 +275,34 @@ class Database:
                 self.backup(self.path.with_name(f"{self.path.name}.bak-v{current}"))
             for version in range(current, SCHEMA_VERSION):
                 # executescript commits first; wrap explicitly so a failed step rolls back.
+                # user_version is transactional, so it only moves if the script succeeds.
                 conn.executescript(
-                    f"BEGIN; {MIGRATIONS[version]}\n"
-                    f"INSERT OR REPLACE INTO meta (key, value) "
-                    f"VALUES ('schema_version', '{version + 1}'); COMMIT;"
+                    f"BEGIN; {MIGRATIONS[version]}\nPRAGMA user_version = {version + 1}; COMMIT;"
                 )
             return SCHEMA_VERSION
+
+    def _reset_legacy(self) -> None:
+        """Pre-0.2 files (schema version kept in a meta table) are set aside, not migrated.
+
+        There was no production data before 0.2 (D45). The old file is kept as a backup.
+        """
+        if not self.path.exists():
+            return
+        with closing(sqlite3.connect(self.path)) as conn:
+            legacy = (
+                conn.execute("PRAGMA user_version").fetchone()[0] == 0
+                and conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'"
+                ).fetchone()
+            )
+        if not legacy:
+            return
+        stamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+        target = self.path.with_name(f"{self.path.name}.legacy-{stamp}.bak")
+        self.backup(target)
+        for suffix in ("", "-wal", "-shm"):
+            self.path.with_name(self.path.name + suffix).unlink(missing_ok=True)
+        _LOGGER.warning("Old pre-0.2 database moved to %s; starting with a fresh one", target)
 
     def backup(self, target: Path) -> None:
         """Consistent copy of the live database (safe with WAL)."""
@@ -246,13 +316,7 @@ class Database:
 
 
 def _read_version(conn: sqlite3.Connection) -> int:
-    has_meta = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'"
-    ).fetchone()
-    if not has_meta:
-        return 0
-    row = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
-    return int(row[0]) if row else 0
+    return int(conn.execute("PRAGMA user_version").fetchone()[0])
 
 
 # --- Repository ---------------------------------------------------------------
@@ -481,11 +545,12 @@ class Repo:
         rows = list(instances)
         for week in {week_start(i.day) for i in rows}:
             self.ensure_week(week)
-        cur = self.conn.executemany(
-            "INSERT OR IGNORE INTO instances (week, kid_id, chore_id, day, type, slot, name, icon,"
-            ' "values", status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [
-                (
+        inserted = 0
+        for i in rows:
+            row = self._x(
+                "INSERT OR IGNORE INTO instances (week, kid_id, chore_id, day, type, slot, name,"
+                " icon, status, status_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+                [
                     week_start(i.day).isoformat(),
                     i.kid_id,
                     i.chore_id,
@@ -494,13 +559,32 @@ class Repo:
                     i.slot.value,
                     i.name,
                     i.icon,
-                    _dump_values(i.values),
                     i.status.value,
-                )
-                for i in rows
-            ],
+                    i.status_at,
+                ],
+            ).fetchone()
+            if row is not None:  # None: the (kid, chore, day) row already existed
+                self._set_instance_values(row[0], i.values)
+                inserted += 1
+        return inserted
+
+    def _set_instance_values(self, instance_id: int, values: Mapping[int, int]) -> None:
+        self._x("DELETE FROM instance_values WHERE instance_id = ?", [instance_id])
+        self.conn.executemany(
+            "INSERT INTO instance_values (instance_id, currency_id, value) VALUES (?, ?, ?)",
+            [(instance_id, cid, v) for cid, v in values.items() if v],
         )
-        return cur.rowcount
+
+    def _load_instances(self, where: str, params: list[Any]) -> list[Instance]:
+        rows = self._x(f"SELECT * FROM instances {where} ORDER BY day, id", params).fetchall()
+        values: dict[int, dict[int, int]] = {}
+        for r in self._x(
+            "SELECT instance_id, currency_id, value FROM instance_values"
+            f" WHERE instance_id IN (SELECT id FROM instances {where})",
+            params,
+        ):
+            values.setdefault(r[0], {})[r[1]] = r[2]
+        return [_instance(r, values.get(r["id"], {})) for r in rows]
 
     def list_instances(
         self, *, week: date | None = None, day: date | None = None, kid_id: int | None = None
@@ -516,14 +600,11 @@ class Repo:
         if kid_id is not None:
             where.append("kid_id = ?")
             params.append(kid_id)
-        sql = "SELECT * FROM instances"
-        if where:
-            sql += " WHERE " + " AND ".join(where)
-        return [_instance(r) for r in self._x(sql + " ORDER BY day, id", params)]
+        return self._load_instances("WHERE " + " AND ".join(where) if where else "", params)
 
     def get_instance(self, instance_id: int) -> Instance | None:
-        row = self._x("SELECT * FROM instances WHERE id = ?", [instance_id]).fetchone()
-        return _instance(row) if row else None
+        found = self._load_instances("WHERE id = ?", [instance_id])
+        return found[0] if found else None
 
     def set_status(
         self, instance_id: int, status: Status, by: str | None, at: str | None = None
@@ -535,19 +616,13 @@ class Repo:
 
     def resync_pending(self, chore: Chore, day: date) -> None:
         """Refresh pending snapshots of `chore` on `day` after an edit (D7)."""
-        self._x(
-            'UPDATE instances SET type = ?, slot = ?, name = ?, icon = ?, "values" = ?'
-            " WHERE chore_id = ? AND day = ? AND status = 'pending'",
-            [
-                chore.type.value,
-                chore.slot.value,
-                chore.name,
-                chore.icon,
-                _dump_values(chore.values),
-                chore.id,
-                day.isoformat(),
-            ],
-        )
+        ids = self._x(
+            "UPDATE instances SET type = ?, slot = ?, name = ?, icon = ?"
+            " WHERE chore_id = ? AND day = ? AND status = 'pending' RETURNING id",
+            [chore.type.value, chore.slot.value, chore.name, chore.icon, chore.id, day.isoformat()],
+        ).fetchall()
+        for (instance_id,) in ids:
+            self._set_instance_values(instance_id, chore.values)
 
     def delete_pending(self, chore_id: int, day: date, keep_kids: Iterable[int] = ()) -> None:
         """Drop pending rows for a chore on a day, e.g. when it is unassigned or deactivated."""
@@ -632,7 +707,7 @@ class Repo:
         *,
         user_id: str | None,
         entity: str | None = None,
-        entity_id: Any = None,
+        entity_id: int | None = None,
         before: Any = None,
         after: Any = None,
         note: str | None = None,
@@ -649,7 +724,7 @@ class Repo:
                 user_id,
                 action,
                 entity,
-                None if entity_id is None else str(entity_id),
+                entity_id,
                 _json_or_none(before),
                 _json_or_none(after),
                 note,
@@ -712,10 +787,6 @@ def _id(cur: sqlite3.Cursor) -> int:
     return cur.lastrowid
 
 
-def _dump_values(values: Mapping[int, int]) -> str:
-    return json.dumps({str(k): v for k, v in values.items()}, sort_keys=True)
-
-
 def _json_or_none(value: Any) -> str | None:
     return None if value is None else json.dumps(value, default=str, sort_keys=True)
 
@@ -755,7 +826,7 @@ def _chore(r: sqlite3.Row, kid_ids: set[int], values: dict[int, int]) -> Chore:
     )
 
 
-def _instance(r: sqlite3.Row) -> Instance:
+def _instance(r: sqlite3.Row, values: dict[int, int]) -> Instance:
     return Instance(
         id=r["id"],
         kid_id=r["kid_id"],
@@ -765,7 +836,7 @@ def _instance(r: sqlite3.Row) -> Instance:
         slot=Slot(r["slot"]),
         name=r["name"],
         icon=r["icon"],
-        values={int(k): v for k, v in json.loads(r["values"]).items()},
+        values=values,
         status=Status(r["status"]),
         status_at=r["status_at"],
     )

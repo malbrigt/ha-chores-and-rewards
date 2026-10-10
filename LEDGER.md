@@ -15,6 +15,7 @@ Each step records its status, what was built, how it was solved, any deviations,
 | 9 | Panel part 2 | ✅ |
 | 10 | Sensors and release | ✅ |
 | 11 | Kids fix past days, audited taps, log review | ✅ |
+| 12 | Database review and clean STRICT schema | ✅ |
 
 ---
 
@@ -396,3 +397,30 @@ What we should have done from the start:
 **Decisions:** D8 and D29 revised, D43 and D44 added.
 
 **Tests:** 165 Python (migration upgrade, audit filters, kid past-day fixes and refusals, review filters), 19 JS unit, 8 smoke and E2E (now including Detaljer → log).
+
+---
+
+## Step 12: Database review and clean rebuild ✅ (user request)
+**Why:** the user asked for a critical review (normal forms, datatypes, proven SQLite patterns), and to recreate the schema rather than migrate it, since there is no production data.
+
+**Review result:** the schema was in 3NF overall; the `instances` and `audit_log` snapshots are intentional history. Fixed:
+1. `instances."values"` was JSON, breaking 1NF with no FK. It's now the `instance_values` table, with FKs and `ON DELETE CASCADE`.
+2. `instances.week` is derived from `day` (3NF). It's kept for the FK and index, and enforced by `CHECK (week = date(day,'-6 days','weekday 1'))`. A Monday check was added to `weeks.start`.
+3. All 14 tables are `STRICT`. Booleans, dates and timestamps are validated by CHECKs.
+4. `weekdays` had two encodings of "every day" (0 and 127). It's now 1..127, with every day stored as 127 and read back as empty.
+5. Added missing CHECKs: snapshot type/slot, amounts, non-empty names, week status matching `closed_at`, and `status_at` set on any non-pending status.
+6. FK child columns are indexed.
+7. Case-insensitive unique active names, via partial indexes. Duplicates return the new `duplicate_name` WS error.
+8. `audit_log`: `entity_id` is INTEGER, `kid_id` has an FK, JSON is validated, `ts` is indexed. Week rows now use `day` instead of `entity_id`.
+9. The version moved from the meta table to `PRAGMA user_version`.
+10. PRAGMAs: `synchronous=NORMAL` and `optimize` on close; the duplicate busy timeout is gone.
+
+**Rebuild:**
+- Migrations were squashed into one schema. The runner and its backup-before-upgrade stay for future changes.
+- Pre-0.2 files are detected, backed up as `.legacy-<ts>.bak` and replaced. Verified live: dev HA restarted, the old file was set aside, and a fresh DB was created.
+
+**Verified:** on the dev DB, `PRAGMA integrity_check` returns ok, `foreign_key_check` finds nothing, `user_version` is 1, WAL is on and all tables are STRICT. A test asserts the same.
+
+**Decisions:** D21 revised, D45 added. Sources: sqlite.org docs on stricttables, datatype3, foreignkeys, pragma and partialindex.
+
+**Tests:** 182 Python (constraint tests, legacy reset, normalized values, one-encoding weekdays, duplicate names over WS), JS, smoke and E2E unchanged and green.

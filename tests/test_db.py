@@ -137,7 +137,8 @@ def test_last_finalized(db):
 def test_weekday_mask_roundtrip():
     assert weekdays_to_mask({0, 6}) == 0b1000001
     assert mask_to_weekdays(0b1000001) == frozenset({0, 6})
-    assert mask_to_weekdays(0) == frozenset()
+    assert mask_to_weekdays(127) == frozenset()
+    assert weekdays_to_mask([]) == 127
 
 
 # --- kids / currencies --------------------------------------------------------
@@ -316,7 +317,7 @@ def test_audit_log(db):
     db.run(lambda r: r.audit("close_week", user_id=None))
     log = db.run(lambda r: r.list_audit())
     assert [e["action"] for e in log] == ["close_week", "reject"]
-    assert log[1]["entity_id"] == "5" and '"rejected"' in log[1]["after"]
+    assert log[1]["entity_id"] == 5 and '"rejected"' in log[1]["after"]
     assert log[0]["before"] is None
 
 
@@ -337,38 +338,30 @@ def test_insert_instances_derives_week_per_day(db):
     assert len(db.run(lambda r: r.list_instances(week=mon))) == 1
 
 
-def test_upgrade_v1_to_v2_backfills_audit(tmp_path, monkeypatch):
-    """A real upgrade: v1 data with old-style audit rows gets kid/day backfilled."""
+def test_legacy_pre_02_file_is_set_aside(tmp_path, caplog):
+    """D45: a pre-0.2 file (version in a meta table) is backed up and replaced, not migrated."""
     path = tmp_path / "chores.db"
-    with monkeypatch.context() as m:
-        m.setattr(dbmod, "MIGRATIONS", dbmod.MIGRATIONS[:1])
-        m.setattr(dbmod, "SCHEMA_VERSION", 1)
-        Database(path).migrate()
-    old = Database(path)
-    ada = old.run(lambda r: r.add_kid("Ada"))
-    cid = old.run(lambda r: r.add_chore(_chore({ada})))
-    old.run(lambda r: r.insert_instances(instances_for_day(r.list_chores(), [ada], MON)))
-    inst_id = old.run(lambda r: r.list_instances()[0].id)
     with closing(sqlite3.connect(path)) as conn, conn:
-        conn.execute(
-            "INSERT INTO audit_log (ts, user_id, action, entity, entity_id) VALUES"
-            " ('t', 'u', 'kid_save', 'kid', ?), ('t', 'u', 'set_status', 'instance', ?),"
-            " ('t', 'u', 'settings_save', 'settings', NULL)",
-            [str(ada), str(inst_id)],
-        )
-    assert cid
-
-    assert Database(path).migrate() == SCHEMA_VERSION
-    assert (tmp_path / "chores.db.bak-v1").exists()
-    log = {e["action"]: e for e in Database(path).run(lambda r: r.list_audit())}
-    assert log["kid_save"]["kid_id"] == ada and log["kid_save"]["day"] is None
-    assert (log["set_status"]["kid_id"], log["set_status"]["day"]) == (ada, "2026-10-05")
-    assert log["settings_save"]["kid_id"] is None and log["settings_save"]["late"] is False
+        conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)")
+        conn.execute("INSERT INTO meta VALUES ('schema_version', '2')")
+        conn.execute("CREATE TABLE kids (id INTEGER PRIMARY KEY, name TEXT)")
+        conn.execute("INSERT INTO kids (name) VALUES ('Old Ada')")
+    db = Database(path)
+    assert db.migrate() == SCHEMA_VERSION
+    assert db.run(lambda r: r.list_kids()) == []
+    backups = list(tmp_path.glob("chores.db.legacy-*.bak"))
+    assert len(backups) == 1
+    with closing(sqlite3.connect(backups[0])) as conn:
+        assert conn.execute("SELECT name FROM kids").fetchone()[0] == "Old Ada"
+    assert "Old pre-0.2 database" in caplog.text
+    db.migrate()  # a current file is left alone
+    assert len(list(tmp_path.glob("chores.db.legacy-*.bak"))) == 1
 
 
 def test_audit_filters(db):
     """D44: filter by action, kid, week (chore's day) and late."""
     tue = date(2026, 10, 6)
+    db.run(lambda r: [r.add_kid("Ada"), r.add_kid("Bo")])
     db.run(lambda r: r.audit("check", user_id="u", kid_id=1, day=MON, late=False))
     db.run(lambda r: r.audit("check", user_id="u", kid_id=1, day=MON, late=True))
     db.run(lambda r: r.audit("uncheck", user_id="u", kid_id=2, day=tue))
@@ -382,3 +375,110 @@ def test_audit_filters(db):
     assert count(week=MON) == 3
     assert count(week=MON, kid_id=1, late_only=True) == 1
     assert db.run(lambda r: r.list_audit(late_only=True))[0]["late"] is True
+
+
+# --- constraints (D45) ----------------------------------------------------------
+
+
+def _raw(db, sql, params=()):
+    with closing(sqlite3.connect(db.path)) as conn, conn:
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute(sql, params)
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "INSERT INTO kids (name, sort) VALUES ('X', 'first')",  # STRICT: text in INTEGER
+        "INSERT INTO kids (name, active) VALUES ('X', 2)",  # boolean
+        "INSERT INTO kids (name) VALUES ('  ')",  # empty name
+        "INSERT INTO weeks (start) VALUES ('2026-10-06')",  # not a Monday
+        "INSERT INTO weeks (start) VALUES ('2026-13-05')",  # not a date
+        "INSERT INTO weeks (start, status) VALUES ('2026-10-05', 'closed')",  # no closed_at
+        "INSERT INTO chores (name, type, slot, weekdays) VALUES ('X', 'expected', 'morning', 0)",
+        "INSERT INTO currencies (name, unit, payout_weekday, can_be_lost, cap_mode, default_max)"
+        " VALUES ('X', 'x', 1, 0, 'fixed', -1)",  # negative max
+        "INSERT INTO audit_log (ts, action, before) VALUES ('2026-10-05T10:00:00+00:00', 'x', '{')",
+        "INSERT INTO audit_log (ts, action) VALUES ('yesterday', 'x')",  # bad timestamp
+    ],
+)
+def test_check_constraints_reject_bad_rows(db, sql):
+    with pytest.raises(sqlite3.IntegrityError):
+        _raw(db, sql)
+
+
+def test_instance_week_must_match_day(db):
+    ada = db.run(lambda r: r.add_kid("Ada"))
+    cid = db.run(lambda r: r.add_chore(_chore({ada})))
+    db.run(lambda r: [r.ensure_week(MON), r.ensure_week(date(2026, 10, 12))])
+    insert = (
+        "INSERT INTO instances (week, kid_id, chore_id, day, type, slot, name)"
+        " VALUES (?, ?, ?, ?, 'expected', 'morning', 'x')"
+    )
+    _raw(db, insert, ["2026-10-05", ada, cid, "2026-10-11"])  # Sunday of that week: ok
+    with pytest.raises(sqlite3.IntegrityError):
+        _raw(db, insert, ["2026-10-05", ada, cid, "2026-10-12"])  # next week's Monday
+
+
+def test_done_needs_status_at(db):
+    ada = db.run(lambda r: r.add_kid("Ada"))
+    cid = db.run(lambda r: r.add_chore(_chore({ada})))
+    db.run(lambda r: r.ensure_week(MON))
+    with pytest.raises(sqlite3.IntegrityError):
+        _raw(
+            db,
+            "INSERT INTO instances (week, kid_id, chore_id, day, type, slot, name, status)"
+            " VALUES ('2026-10-05', ?, ?, '2026-10-05', 'expected', 'morning', 'x', 'done')",
+            [ada, cid],
+        )
+
+
+def test_unique_active_names_case_insensitive(db):
+    """D45: no two active kids/chores/currencies share a name; deleted ones don't count."""
+    ada = db.run(lambda r: r.add_kid("Ada"))
+    with pytest.raises(sqlite3.IntegrityError, match="UNIQUE"):
+        db.run(lambda r: r.add_kid("ada"))
+    db.run(lambda r: r.delete_kid(ada))
+    assert db.run(lambda r: r.add_kid("Ada"))
+    with pytest.raises(sqlite3.IntegrityError, match="UNIQUE"):
+        db.run(
+            lambda r: r.add_currency(
+                Currency(0, "skjermtid", "min", payout_weekday=4, can_be_lost=False)
+            )
+        )
+
+
+def test_instance_values_normalized_with_fk_and_cascade(db):
+    """D21 revised: snapshot values live in instance_values, deleted with their instance."""
+    ada, _ = _setup_instances(db)
+    inst = db.run(lambda r: r.list_instances())[0]
+    assert inst.values == {1: 30, 2: 10}
+    with closing(sqlite3.connect(db.path)) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM instance_values").fetchone()[0] == 2
+    db.run(lambda r: r.delete_pending(inst.chore_id, MON))
+    with closing(sqlite3.connect(db.path)) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM instance_values").fetchone()[0] == 0
+    with pytest.raises(sqlite3.IntegrityError):
+        _raw(db, "INSERT INTO instance_values VALUES (999, 1, 5)")
+
+
+def test_every_day_has_one_representation(db):
+    """D17/D45: empty weekdays are stored as all days and read back as empty."""
+    ada = db.run(lambda r: r.add_kid("Ada"))
+    cid = db.run(lambda r: r.add_chore(_chore({ada}, weekdays=frozenset())))
+    assert db.run(lambda r: r.get_chore(cid)).weekdays == frozenset()
+    with closing(sqlite3.connect(db.path)) as conn:
+        assert conn.execute("SELECT weekdays FROM chores").fetchone()[0] == 127
+
+
+def test_integrity_and_fk_checks_clean(db):
+    _setup_instances(db)
+    with closing(sqlite3.connect(db.path)) as conn:
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+        strict = conn.execute(
+            "SELECT name FROM pragma_table_list"
+            " WHERE strict = 0 AND schema = 'main' AND name NOT LIKE 'sqlite_%'"
+        ).fetchall()
+        assert strict == []

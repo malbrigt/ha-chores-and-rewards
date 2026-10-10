@@ -120,9 +120,13 @@ def handler(*, parent: bool) -> Callable[[Handler], Any]:
                 result = await func(hass, connection, msg, store)
             except RuleError as err:
                 connection.send_error(msg["id"], err.code, err.code)
-            except NotFound, sqlite3.IntegrityError:
-                # IntegrityError: a foreign key to a missing kid/currency/chore.
+            except NotFound:
                 connection.send_error(msg["id"], "not_found", "Not found")
+            except sqlite3.IntegrityError as err:
+                # UNIQUE: an active kid/chore/currency already has that name.
+                # Anything else (FOREIGN KEY): a reference to a missing kid/currency/chore.
+                code = "duplicate_name" if "UNIQUE" in str(err) else "not_found"
+                connection.send_error(msg["id"], code, code)
             else:
                 connection.send_result(msg["id"], result)
 
@@ -808,9 +812,7 @@ async def ws_parent_close_week(hass, connection, msg, store: ChoresStore) -> dic
     def write(repo: Repo) -> None:
         _open_week(repo, week)
         repo.close_week(week, by=user)
-        repo.audit(
-            "close_week", user_id=user, entity="week", entity_id=week, note="manual", day=week
-        )
+        repo.audit("close_week", user_id=user, entity="week", note="manual", day=week)
 
     await store.async_write(write)
     return {}
@@ -826,7 +828,7 @@ async def ws_parent_reopen_week(hass, connection, msg, store: ChoresStore) -> di
         if repo.week_status(week) != "closed":
             raise RuleError("not_allowed")
         repo.reopen_week(week)
-        repo.audit("reopen_week", user_id=user, entity="week", entity_id=week, day=week)
+        repo.audit("reopen_week", user_id=user, entity="week", day=week)
         ensure_today(repo, today)
 
     await store.async_write(write)

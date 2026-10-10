@@ -247,3 +247,12 @@ async def test_kid_max_unknown_currency_is_not_found(ws):
     code = await err(ws, "admin/kid/save", token=token, name="Ada", max={"99": 10})
     assert code == "not_found"
     assert (await ok(ws, "admin/list", token=token))["kids"] == []  # rolled back
+
+
+async def test_duplicate_active_name_is_reported(ws):
+    """D45: names are unique (case-insensitive) among active kids/chores/currencies."""
+    token = await unlock(ws)
+    ada = (await ok(ws, "admin/kid/save", token=token, name="Ada"))["id"]
+    assert await err(ws, "admin/kid/save", token=token, name="ada") == "duplicate_name"
+    await ok(ws, "admin/kid/delete", token=token, kid_id=ada)
+    assert (await ok(ws, "admin/kid/save", token=token, name="Ada"))["id"] != ada

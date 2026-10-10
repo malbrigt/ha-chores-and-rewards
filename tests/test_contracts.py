@@ -101,7 +101,14 @@ def test_ws_doc_lists_every_command():
     """docs/ws-api.md must document exactly the commands the code registers."""
     doc = (ROOT / "docs/ws-api.md").read_text()
     documented = set(re.findall(r"^\| `([a-z_/]+)` \|", doc, flags=re.M))
-    error_codes = {"invalid_token", "wrong_pin", "locked_out", "not_found", "not_loaded"}
+    error_codes = {
+        "invalid_token",
+        "wrong_pin",
+        "locked_out",
+        "not_found",
+        "duplicate_name",
+        "not_loaded",
+    }
     documented -= error_codes | {"invalid_format"} | set(DEFAULT_SETTINGS)  # other tables
     registered = _registered_types()
     assert len(registered) >= 20

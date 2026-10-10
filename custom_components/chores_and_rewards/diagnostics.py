@@ -19,7 +19,7 @@ def _collect(repo: Repo) -> dict[str, Any]:
     }
     last = repo.last_finalized()
     return {
-        "schema_version": repo.get_meta("schema_version"),
+        "schema_version": repo.conn.execute("PRAGMA user_version").fetchone()[0],
         "last_finalized": last.isoformat() if last else None,
         "open_weeks": [w.isoformat() for w in repo.open_weeks()],
         "counts": counts,

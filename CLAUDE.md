@@ -11,6 +11,7 @@ Spec: `chores-app-spec.md`. Decisions: `docs/decisions.md`. Acceptance criteria:
 ## Rules
 - Runtime may use only the stdlib and HA. Use stable public HA APIs, and `import probatio as vol` for schemas.
 - Chore rules live in `logic.py`, which has no HA imports. Run sqlite via the executor, with writes under the store lock.
+- DB: follow the conventions at the top of `db.py` (D45). Schema changes go into a new `MIGRATIONS` entry.
 - Frontend: one plain JS file, no build step. Export pure helpers for tests.
 - Every behaviour change needs a test that names its `AC-x.y`.
 - A rule that exists on both server and panel shares a fixture in `tests/fixtures/`.
