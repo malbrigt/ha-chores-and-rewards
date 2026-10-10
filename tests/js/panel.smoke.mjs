@@ -150,6 +150,7 @@ test("PIN pad: wrong PIN shows error, right PIN unlocks tabs and ⋯ menu", asyn
   click(root, '[data-action="pin-ok"]');
   await tick();
   assert.ok(root.querySelector('[data-tab="payouts"] .dot'), "payout-due dot");
+  assert.ok(root.querySelector(".lock.open"), "unlocked lock icon");
   click(root, '[data-action="more"][data-id="1"]');
   await tick();
   const labels = [...root.querySelectorAll('[data-action="sheet-item"]')].map((b) => b.textContent);

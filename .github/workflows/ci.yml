@@ -40,3 +40,19 @@ jobs:
         with:
           category: integration
           ignore: brands
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - run: pip install -r requirements_e2e.txt aiohttp
+      - run: python -m playwright install --with-deps --only-shell chromium
+      - run: PYTHON=python script/e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-screenshots
+          path: e2e/artifacts/

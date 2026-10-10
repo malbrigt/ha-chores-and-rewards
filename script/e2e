@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Browser E2E: fresh HA in Docker on :8124 → onboard → seed → Playwright → tear down.
+# KEEP=1 leaves HA running afterwards. PYTHON overrides the interpreter (CI).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+export HA_URL=http://localhost:8124 HA_CONFIG_DIR=dev/e2e-config PYTHON="${PYTHON:-.venv/bin/python}"
+COMPOSE=(docker compose -p chores-e2e -f docker-compose.e2e.yml)
+
+"${COMPOSE[@]}" down >/dev/null 2>&1 || true
+rm -rf dev/e2e-config && mkdir -p dev/e2e-config
+cp dev/config/configuration.yaml dev/e2e-config/
+"${COMPOSE[@]}" up -d
+trap '[ "${KEEP:-}" = 1 ] || "${COMPOSE[@]}" down >/dev/null 2>&1' EXIT
+
+echo "Waiting for Home Assistant on $HA_URL …"
+for _ in $(seq 1 90); do
+  curl -s -o /dev/null -w '%{http_code}' "$HA_URL/api/onboarding" | grep -q 200 && break
+  sleep 2
+done
+"$PYTHON" script/dev_onboard.py
+script/dev_seed.sh >/dev/null
+"$PYTHON" e2e/run.py

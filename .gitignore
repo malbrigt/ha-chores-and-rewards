@@ -8,3 +8,5 @@ htmlcov/
 node_modules/
 dev/config/*
 !dev/config/configuration.yaml
+dev/e2e-config/
+e2e/artifacts/

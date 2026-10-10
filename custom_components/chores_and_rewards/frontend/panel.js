@@ -87,6 +87,7 @@ export const STRINGS = {
     f_chore_type: "Type",
     f_slot: "Tid på dagen",
     f_weekdays: "Dager (ingen = alle)",
+    every_day: "alle dager",
     f_kids: "Barn",
     f_value: "Verdi {name}",
     f_clean_hands_enabled: "Vis «Rene hender?»",
@@ -195,6 +196,7 @@ export const STRINGS = {
     f_chore_type: "Type",
     f_slot: "Time of day",
     f_weekdays: "Days (none = every day)",
+    every_day: "every day",
     f_kids: "Kids",
     f_value: "Value {name}",
     f_clean_hands_enabled: "Show “Clean hands?”",
@@ -417,8 +419,18 @@ const STYLES = `
   header .pill.active { background: rgba(255, 255, 255, 0.25); }
   header .other-day { font-style: italic; }
   header .tabs { display: flex; gap: 6px; }
-  header .lock { font-size: 1.5rem; width: 44px; height: 44px; text-align: center; }
-  .dot { color: var(--warning-color, #ffa600); }
+  header .lock { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; }
+  header .lock ha-icon { --mdc-icon-size: 26px; }
+  header .lock.open { background: var(--warning-color, #ffa600); color: #fff; }
+  .dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--warning-color, #ffa600);
+    margin-left: 4px;
+    vertical-align: middle;
+  }
   button {
     font: inherit;
     color: inherit;
@@ -538,7 +550,7 @@ const STYLES = `
   table.week th:first-child, table.week td:first-child,
   table.list td, table.list th { text-align: left; }
   table.week th:first-child, table.week td:first-child { padding-left: 14px; }
-  table.list td.num { text-align: right; white-space: nowrap; }
+  table.list td.num, table.list th.num { text-align: right; white-space: nowrap; }
   table.list td.actions { text-align: right; white-space: nowrap; }
   table.week .today { background: rgba(var(--rgb-primary-color, 3, 169, 244), 0.12); }
   table.week tr.bonus-row { opacity: 0.6; }
@@ -1361,9 +1373,10 @@ export class ChoresPanel extends Base {
       <style>${STYLES}</style>
       <header><ha-menu-button></ha-menu-button>${back}<span class="title">${title}</span>
         ${this._renderTabs()}
-        <button class="lock" data-action="lock-toggle" aria-label="${t(L, this._parent ? "lock" : "unlock")}">${
-          this._parent ? "🔓" : "🔒"
-        }</button></header>
+        <button class="lock ${this._parent ? "open" : ""}" data-action="lock-toggle"
+          aria-label="${t(L, this._parent ? "lock" : "unlock")}"><ha-icon icon="${
+            this._parent ? "mdi:lock-open-variant" : "mdi:lock"
+          }"></ha-icon></button></header>
       <main>${body}</main>
       ${this._renderForm()}
       ${this._renderSheet()}
@@ -1384,7 +1397,7 @@ export class ChoresPanel extends Base {
         data-action="tab" data-tab="${id}">${label}</button>`;
     return `<nav class="tabs">${tab("today", t(L, "tab_today"))}${tab(
       "payouts",
-      `${t(L, "tab_payouts")}${due ? ' <span class="dot">•</span>' : ""}`,
+      `${t(L, "tab_payouts")}${due ? '<span class="dot" aria-label="!"></span>' : ""}`,
     )}${tab("admin", t(L, "tab_admin"))}${tab("log", t(L, "tab_log"))}</nav>`;
   }
 
@@ -1553,7 +1566,7 @@ export class ChoresPanel extends Base {
         return `<div class="card"><h2><ha-icon icon="${escapeHtml(c.icon || "mdi:star")}"></ha-icon>
           <span class="grow">${escapeHtml(c.name)}</span>
           <span class="muted">${t(L, "payout_day", { day: escapeHtml(formatDay(payoutDay, L)) })}${today}</span></h2>
-          <table class="list"><tr class="muted"><th></th><th>${t(L, "amount_due")}</th><th></th><th></th></tr>${rows}</table></div>`;
+          <table class="list"><tr class="muted"><th></th><th class="num">${t(L, "amount_due")}</th><th></th><th></th></tr>${rows}</table></div>`;
       })
       .join("");
     const adjustments = p.adjustments.length
@@ -1588,7 +1601,7 @@ export class ChoresPanel extends Base {
       .map((c) => {
         const days = c.weekdays.length
           ? c.weekdays.map((d) => weekdayName(d, L).slice(0, 3)).join(" ")
-          : "–";
+          : t(L, "every_day");
         const values = Object.entries(c.values)
           .map(([cid, v]) => `${v} ${escapeHtml(a.currencies.find((x) => x.id === Number(cid))?.unit ?? "")}`)
           .join(", ");

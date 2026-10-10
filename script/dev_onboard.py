@@ -1,18 +1,25 @@
 """Onboard the local Docker HA (user dev/dev) and add Chores and Rewards (PIN 1234).
 
-Idempotent enough for dev use. Writes an access token to dev/config/.dev_token. Stdlib only.
+Idempotent enough for dev use. Stdlib only. HA_URL (default http://localhost:8123) and
+HA_CONFIG_DIR (default dev/config) select the instance. Writes .dev_token (access token)
+and .dev_tokens.json (full token set for a browser's localStorage) into the config dir.
 """
 
 import json
+import os
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
 
-BASE = "http://localhost:8123"
+ROOT = Path(__file__).resolve().parent.parent
+BASE = os.environ.get("HA_URL", "http://localhost:8123")
 CLIENT_ID = f"{BASE}/"
-TOKEN_FILE = Path(__file__).resolve().parent.parent / "dev/config/.dev_token"
+CONFIG_DIR = ROOT / os.environ.get("HA_CONFIG_DIR", "dev/config")
+TOKEN_FILE = CONFIG_DIR / ".dev_token"
+TOKENS_FILE = CONFIG_DIR / ".dev_tokens.json"
 
 
 def call(method, path, body=None, token=None, form=False):
@@ -39,6 +46,11 @@ def token_from_code(code):
         {"grant_type": "authorization_code", "code": code, "client_id": CLIENT_ID},
         form=True,
     )
+    # Same shape the HA frontend keeps in localStorage["hassTokens"].
+    tok.update(
+        hassUrl=BASE, clientId=CLIENT_ID, expires=int(time.time() * 1000) + tok["expires_in"] * 1000
+    )
+    TOKENS_FILE.write_text(json.dumps(tok))
     return tok["access_token"]
 
 

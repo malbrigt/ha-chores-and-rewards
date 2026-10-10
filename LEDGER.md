@@ -13,7 +13,7 @@ Each step records its status, what was built, how it was solved, any deviations,
 | 7 | Parent actions | ✅ |
 | 8 | Panel part 1 | ✅ |
 | 9 | Panel part 2 | ✅ |
-| 10 | Sensors and release | ⏳ |
+| 10 | Sensors and release | ✅ |
 
 ---
 
@@ -340,3 +340,29 @@ What we should have done from the start:
 - A docs ↔ code contract test as soon as the contract was written.
 
 **Tests:** 145 Python, 17 JS unit and 6 smoke.
+
+---
+
+## Step 10: Sensors, E2E and release ✅
+**Built:**
+- `sensor.py`: balance sensors per kid × currency (D41).
+- `e2e/run.py` (Playwright, Python) with `script/e2e` and `docker-compose.e2e.yml`, plus a CI `e2e` job that uploads screenshots.
+- The dev scripts take `HA_URL` and `HA_CONFIG_DIR`, and `dev_onboard` also saves the full token set for browser login.
+- README with install, first steps, tablet advice and dev commands, plus an overview screenshot.
+
+**How:**
+- **Sensors:** a `DataUpdateCoordinator` with `update_interval=None`, refreshed by the dispatcher signal. A listener adds new entities and removes stale ones.
+- **E2E login:** puts HA's `hassTokens` and `selectedLanguage=nb` into localStorage. Two browser contexts act as two tablets.
+- **Isolation:** the E2E HA runs as its own compose project (`-p chores-e2e`), so it never touches the dev HA or its data.
+
+**Visual review:** I looked at the E2E screenshots myself for the first time and fixed four things:
+- the lock emojis looked alike, so they're now mdi icons, orange when unlocked;
+- the payout-due dot was hard to see, so it's now a badge;
+- the "Til gode" header was misaligned;
+- the admin list said "–" for every-day chores, so it now says "alle dager".
+
+**Disk:** the Playwright Python package (134 MB) and its headless shell (196 MB) are about 330 MB, more than the ~150 MB I estimated. There's also an unrelated 530 MB June Playwright cache in `~/Library/Caches/ms-playwright`.
+
+**Decisions added:** D41, D42.
+
+**Tests:** 147 Python, 17 JS unit, 6 smoke and 1 E2E scenario (about 25 checks).

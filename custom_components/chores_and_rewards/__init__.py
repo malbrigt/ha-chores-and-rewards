@@ -9,6 +9,7 @@ from pathlib import Path
 from homeassistant.components import frontend, panel_custom
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import async_track_time_change
@@ -31,6 +32,8 @@ from .store import ChoresStore
 _LOGGER = logging.getLogger(__name__)
 
 type ChoresConfigEntry = ConfigEntry[ChoresStore]
+
+PLATFORMS = [Platform.SENSOR]
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -62,6 +65,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ChoresConfigEntry) -> bo
     entry.async_on_unload(async_track_time_change(hass, _midnight, hour=0, minute=0, second=0))
     await _async_register_panel(hass, entry)
     entry.async_on_unload(entry.add_update_listener(_async_entry_updated))
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 
@@ -91,4 +95,4 @@ async def _async_register_panel(hass: HomeAssistant, entry: ChoresConfigEntry) -
 
 async def async_unload_entry(hass: HomeAssistant, entry: ChoresConfigEntry) -> bool:
     """Unload a config entry. Listeners are removed via async_on_unload."""
-    return True
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

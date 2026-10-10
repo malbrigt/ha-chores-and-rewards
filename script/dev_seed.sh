@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 T='"token":"$token"'
 C='"type":"chores_and_rewards/admin/chore/save"'
-.venv/bin/python script/dev_ws.py \
+"${PYTHON:-.venv/bin/python}" script/dev_ws.py \
   '{"type":"chores_and_rewards/pin/unlock","pin":"1234"}' \
   '{"type":"chores_and_rewards/admin/currency/save",'"$T"',"currency_id":1,"name":"Skjermtid","unit":"min","icon":"mdi:tablet","payout_weekday":4,"can_be_lost":true,"cap_mode":"fixed","default_max":120}' \
   '{"type":"chores_and_rewards/admin/kid/save",'"$T"',"name":"Ada"}' \

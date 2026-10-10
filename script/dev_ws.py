@@ -8,18 +8,21 @@ Each argument is one message; "$token" in a later message is replaced by the las
 
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
 import aiohttp
 
-TOKEN_FILE = Path(__file__).resolve().parent.parent / "dev/config/.dev_token"
+ROOT = Path(__file__).resolve().parent.parent
+BASE = os.environ.get("HA_URL", "http://localhost:8123")
+TOKEN_FILE = ROOT / os.environ.get("HA_CONFIG_DIR", "dev/config") / ".dev_token"
 
 
 async def main(messages: list[str]) -> None:
     async with (
         aiohttp.ClientSession() as session,
-        session.ws_connect("http://localhost:8123/api/websocket") as ws,
+        session.ws_connect(f"{BASE}/api/websocket") as ws,
     ):
         await ws.receive_json()
         await ws.send_json({"type": "auth", "access_token": TOKEN_FILE.read_text().strip()})

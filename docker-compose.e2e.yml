@@ -1,0 +1,12 @@
+# Throwaway Home Assistant for the browser E2E test (script/e2e). UI: http://localhost:8124
+services:
+  homeassistant-e2e:
+    image: ghcr.io/home-assistant/home-assistant:2026.10
+    container_name: chores-ha-e2e
+    ports:
+      - "8124:8123"
+    volumes:
+      - ./dev/e2e-config:/config
+      - ./custom_components/chores_and_rewards:/config/custom_components/chores_and_rewards
+    environment:
+      - TZ=Europe/Oslo
