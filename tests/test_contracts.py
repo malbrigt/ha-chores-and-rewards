@@ -113,3 +113,14 @@ def test_ws_doc_lists_every_command():
     registered = _registered_types()
     assert len(registered) >= 20
     assert documented == registered
+
+
+def test_panel_labels_every_audit_action():
+    """Every audit action in the replay contract has an nb label in the panel's log."""
+    from .replay import NO_STATE
+
+    panel = (ROOT / "custom_components/chores_and_rewards/frontend/panel.js").read_text()
+    doc = (ROOT / "docs/ws-api.md").read_text().split("## Audit actions")[1]
+    actions = set(re.findall(r"`([a-z_]+)`", doc)) | NO_STATE
+    missing = [a for a in sorted(actions) if f"a_{a}:" not in panel]
+    assert missing == []
