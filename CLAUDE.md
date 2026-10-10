@@ -1,30 +1,24 @@
 # Chores and Rewards: agent guide
 
-The source of truth is `chores-app-spec.md`. Gap decisions are in `docs/decisions.md`, testable rules in `docs/acceptance.md`, and progress in `LEDGER.md`.
+Spec: `chores-app-spec.md`. Decisions: `docs/decisions.md`. Acceptance criteria: `docs/acceptance.md`. API: `docs/ws-api.md`. Layout: `docs/ui-layout.md`. Progress: `LEDGER.md`.
 
 ## Commands
-- Setup: `script/setup` (Python 3.14 venv in `.venv`)
-- Test: `script/test` (pytest, then `node --test "tests/js/*.test.mjs"`; node runs via Docker if it isn't installed)
-- Smoke: `script/smoke` renders the real panel in happy-dom against a fake HA connection (Docker; nothing is installed on the host)
-- E2E: `script/e2e` starts a throwaway HA on :8124, onboards and seeds it, then runs Playwright (`e2e/run.py`). Screenshots go to `e2e/artifacts/`; look at them after UI changes.
-- Lint: `script/lint` to fix, `script/lint --check` for CI
-- Real HA: `script/develop` starts HA 2026.10 in Docker at http://localhost:8123. Then `.venv/bin/python script/dev_onboard.py` onboards it (login dev/dev) and adds the integration (PIN 1234).
+- `script/setup`: create the Python 3.14 venv.
+- `script/check`: lint + mypy, pytest + node tests, smoke, E2E. **Run before every push.**
+- `script/develop`: dev HA on :8123. Then `.venv/bin/python script/dev_onboard.py && script/dev_seed.sh` (login dev/dev, PIN 1234).
+- After UI changes, look at `e2e/artifacts/*.png`.
 
 ## Rules
-- No third-party Python dependencies at runtime. Only stdlib and HA are allowed.
-- `logic.py` has no HA imports, and all chore rules live there.
-- Run every sqlite call through `hass.async_add_executor_job`, and serialize writes with the store lock.
-- Frontend is one plain JS file (`frontend/panel.js`). No framework and no build step. Export pure helpers so `node --test` can test them.
-- Use only stable public HA APIs. For schemas use `import probatio as vol`; HA 2026.10 no longer ships voluptuous.
-- `script/lint --check` also runs mypy and must stay clean.
-- Every behaviour change needs a test. Reference acceptance IDs (e.g. `AC-5.2`) in test names or docstrings.
-- At the end of each step: lint, tests and `script/smoke` green, `LEDGER.md` updated, one concise commit (no separate "ledger hash" commits; the ledger names the commit subject).
-- Rules that exist on both server and panel must share a fixture in `tests/fixtures/` that is tested on both sides (see `parent_actions.json`).
-- Every new WS command must be added to `docs/ws-api.md`; `tests/test_contracts.py` enforces it. Run `git status` before pushing; new files need `git add -A`, because `commit -a` skips untracked files.
+- Runtime may use only the stdlib and HA. Use stable public HA APIs, and `import probatio as vol` for schemas.
+- Chore rules live in `logic.py`, which has no HA imports. Run sqlite via the executor, with writes under the store lock.
+- Frontend: one plain JS file, no build step. Export pure helpers for tests.
+- Every behaviour change needs a test that names its `AC-x.y`.
+- A rule that exists on both server and panel shares a fixture in `tests/fixtures/`.
+- A new WS command needs an entry in `docs/ws-api.md` (enforced by a test).
+- Commit: `git status` first (`git add -A` for new files), and one concise commit per step. Update `LEDGER.md`. After a push, check CI by commit SHA.
 
-## Non-goals (spec §10). Do not add:
-- Gamification: leaderboards, badges, streaks, confetti, points counters on bonus chores.
-- Make-up chores, device control, auto payments, rewards shop, carry-over, photo proof, approval queue, notifications.
+## Non-goals (spec §10)
+No gamification (leaderboards, badges, streaks, confetti, bonus counters). No make-up chores, device control, auto payments, shop, carry-over, photo proof, approval queue or notifications.
 
 ## Communication
-Be extremely concise. Ask only when blocked. Explain HA-specific concepts in a single "junior dev" line.
+Extremely concise. Ask only when blocked. Explain HA concepts in one "junior dev" line.

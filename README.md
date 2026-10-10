@@ -60,6 +60,7 @@ script/lint         # ruff + mypy
 script/develop      # HA 2026.10 in Docker on :8123
 .venv/bin/python script/dev_onboard.py && script/dev_seed.sh   # login dev/dev, PIN 1234, demo data
 script/e2e          # browser E2E (Playwright) against a throwaway HA on :8124
+script/check        # all of the above + lint; run before every push
 ```
 For E2E: `pip install -r requirements_e2e.txt && python -m playwright install --only-shell chromium`.
 

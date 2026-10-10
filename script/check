@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Everything CI runs, locally. Must pass before every push.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+script/lint --check
+script/test
+script/smoke
+script/e2e
+echo "All checks passed."
