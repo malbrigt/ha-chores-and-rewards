@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import sqlite3
 from datetime import datetime
@@ -79,9 +80,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ChoresConfigEntry) -> bo
     return True
 
 
+def _panel_hash() -> str:
+    """Short content hash of panel.js (blocking file read: run in the executor)."""
+    return hashlib.sha256((Path(__file__).parent / "frontend/panel.js").read_bytes()).hexdigest()[
+        :12
+    ]
+
+
 async def _async_register_panel(hass: HomeAssistant, entry: ChoresConfigEntry) -> None:
-    """Sidebar panel. The ?v= query busts the browser cache on upgrades."""
+    """Sidebar panel. The ?v= query busts the browser cache whenever panel.js changes.
+
+    It is a content hash, not the version: a reused version number (e.g. a re-cut
+    release) would otherwise keep serving a stale cached panel.
+    """
     version = (await async_get_integration(hass, DOMAIN)).version
+    digest = await hass.async_add_executor_job(_panel_hash)
     if not frontend.async_panel_exists(hass, PANEL_URL):
         await panel_custom.async_register_panel(
             hass,
@@ -89,7 +102,7 @@ async def _async_register_panel(hass: HomeAssistant, entry: ChoresConfigEntry) -
             webcomponent_name=PANEL_ELEMENT,
             sidebar_title=panel_title(hass.config.language),
             sidebar_icon=PANEL_ICON,
-            module_url=f"{STATIC_URL}/panel.js?v={version}",
+            module_url=f"{STATIC_URL}/panel.js?v={digest}",
             require_admin=False,  # D14: the tablet may run as a normal HA user
             config={"version": str(version)},
         )

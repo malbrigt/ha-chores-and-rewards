@@ -541,3 +541,6 @@ Manifest version 0.2.0. Since v0.1.0: kids fix past days, a replayable audit log
 
 ## Release v0.1.0 (user go-ahead)
 Recreated from main (`4d6e2f7`, CI green) after the old v0.1.0/v0.2.0 were deleted. It is the first release with the current schema (application_id stamp, decimals, pay-or-win-back).
+
+## Fix: stale panel after re-cutting v0.1.0
+The panel URL was `panel.js?v=<version>`. Going back to 0.1.0 reused an old URL, so a browser kept the cached pre-decimals panel and showed cents as euros ("580 €"). The query is now a content hash of `panel.js`, so any change to the file busts the cache.

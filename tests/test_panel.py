@@ -1,5 +1,8 @@
 """Sidebar panel registration and static frontend file."""
 
+from hashlib import sha256
+from pathlib import Path
+
 import pytest
 from homeassistant.components import frontend
 
@@ -13,7 +16,9 @@ async def test_panel_registered_and_removed(hass, setup_entry):
     assert not panel.require_admin  # D14
     assert panel.sidebar_title == "Chores"  # D36: follows the system language (en in tests)
     module_url = panel.config["_panel_custom"]["module_url"]
-    assert module_url.startswith(f"{STATIC_URL}/panel.js?v=")
+    # Cache-busting by content, so a reused version can't serve a stale panel.
+    js = Path(__file__).parent.parent / "custom_components/chores_and_rewards/frontend/panel.js"
+    assert module_url == f"{STATIC_URL}/panel.js?v={sha256(js.read_bytes()).hexdigest()[:12]}"
     assert panel.config["_panel_custom"]["name"] == "chores-and-rewards-panel"
 
     await hass.config_entries.async_reload(entry.entry_id)  # no "overwriting panel" error

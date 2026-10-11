@@ -96,7 +96,7 @@ def main() -> None:
         for digit in "0000":
             a.locator(f'[data-action="pin-digit"][data-digit="{digit}"]').click()
         a.locator('[data-action="pin-ok"]').click()
-        expect(a.locator(".toast")).to_contain_text("Wrong PIN")
+        expect(a.locator("#toast")).to_contain_text("Wrong PIN")
         for digit in "1234":
             a.locator(f'[data-action="pin-digit"][data-digit="{digit}"]').click()
         a.locator('[data-action="pin-ok"]').click()
