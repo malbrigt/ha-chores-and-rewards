@@ -538,3 +538,6 @@ Manifest version 0.2.0. Since v0.1.0: kids fix past days, a replayable audit log
 - **Recreate, not migrate (user's call):** one clean schema with `currencies.decimals` and `instances.currency_id` built in; the v2 migration is gone. Files are stamped with `PRAGMA application_id`, and any unstamped file (pre-0.2 or the v0.1/v0.2 releases) is backed up and recreated.
 - **Releases v0.1.0 and v0.2.0 deleted** (nobody used them). The manifest is back to 0.1.0; no release until the user says go.
 - **Seed:** allowance is € with cents (≈7 € for a good week). The default whole-kroner "Ukepenger" is deleted and replaced, because decimals can't change.
+
+## Release v0.1.0 (user go-ahead)
+Recreated from main (`4d6e2f7`, CI green) after the old v0.1.0/v0.2.0 were deleted. It is the first release with the current schema (application_id stamp, decimals, pay-or-win-back).
