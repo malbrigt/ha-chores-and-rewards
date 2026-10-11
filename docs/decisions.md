@@ -39,7 +39,7 @@ These fill gaps in the spec. A ✔ means the owner confirmed it.
 | D33 ✔ | Layout | Overview is 3 kid columns for today. Tapping a name opens that kid's week grid. Parent mode adds extras to the same screens. See `docs/ui-layout.md`. |
 | D34 ✔ | Week grid taps | Kids can tick today's cells in the week grid, with a confirmation. Past days are parent-only. |
 | D35 ✔ | Uncheck guard | Unchecking a chore ticked more than 30 s ago asks for confirmation. Needs `status_at` in the API. |
-| D36 | Sidebar title | "Gjøremål" (Norwegian default). Custom panels can't translate their sidebar title. |
+| D36 | Sidebar title | Custom panels can't translate their sidebar title, so it follows the HA system language when the integration loads: "Gjøremål" (nb/nn/no) or "Chores". |
 | D37 ✔ | Day switching | The overview can switch days within the current week. Past days are read-only for kids (parents: step 9). Future days show an unsaved preview built from the schedule. Idle returns to today. |
 | D38 | UI verification | Rendering is tested with a happy-dom smoke test (`script/smoke` and CI) that drives the real element against a fake HA connection. Pixel-level look is still checked by a person on the tablet. |
 | D39 | Forms vs live updates | Form inputs are uncontrolled. Typed values are copied back before any re-render, and background reloads don't re-render while a form is open. |

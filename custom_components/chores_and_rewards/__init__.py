@@ -24,9 +24,9 @@ from .const import (
     DOMAIN,
     PANEL_ELEMENT,
     PANEL_ICON,
-    PANEL_TITLE,
     PANEL_URL,
     STATIC_URL,
+    panel_title,
 )
 from .db import Database, SchemaTooNewError
 from .store import ChoresStore
@@ -87,7 +87,7 @@ async def _async_register_panel(hass: HomeAssistant, entry: ChoresConfigEntry) -
             hass,
             frontend_url_path=PANEL_URL,
             webcomponent_name=PANEL_ELEMENT,
-            sidebar_title=PANEL_TITLE,
+            sidebar_title=panel_title(hass.config.language),
             sidebar_icon=PANEL_ICON,
             module_url=f"{STATIC_URL}/panel.js?v={version}",
             require_admin=False,  # D14: the tablet may run as a normal HA user

@@ -1,8 +1,9 @@
 """Sidebar panel registration and static frontend file."""
 
+import pytest
 from homeassistant.components import frontend
 
-from custom_components.chores_and_rewards.const import PANEL_URL, STATIC_URL
+from custom_components.chores_and_rewards.const import PANEL_URL, STATIC_URL, panel_title
 
 
 async def test_panel_registered_and_removed(hass, setup_entry):
@@ -10,7 +11,7 @@ async def test_panel_registered_and_removed(hass, setup_entry):
     panels = hass.data[frontend.DATA_PANELS]
     panel = panels[PANEL_URL]
     assert not panel.require_admin  # D14
-    assert panel.sidebar_title == "Gjøremål"
+    assert panel.sidebar_title == "Chores"  # D36: follows the system language (en in tests)
     module_url = panel.config["_panel_custom"]["module_url"]
     assert module_url.startswith(f"{STATIC_URL}/panel.js?v=")
     assert panel.config["_panel_custom"]["name"] == "chores-and-rewards-panel"
@@ -30,3 +31,17 @@ async def test_static_js_served(hass, setup_entry, hass_client):
     assert resp.status == 200
     body = await resp.text()
     assert 'customElements.define("chores-and-rewards-panel"' in body
+
+
+@pytest.mark.parametrize(
+    ("language", "title"),
+    [
+        ("nb", "Gjøremål"),
+        ("nn", "Gjøremål"),
+        ("no", "Gjøremål"),
+        ("en", "Chores"),
+        ("de", "Chores"),
+    ],
+)
+def test_panel_title_follows_system_language(language, title):
+    assert panel_title(language) == title

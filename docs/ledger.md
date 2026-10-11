@@ -505,3 +505,12 @@ Three parallel reviews: UI against HA frontend conventions, backend against HA i
 - New `docs/database.md`: tables, relations (a mermaid ER diagram), derived values and schema rules.
 - README rewritten to be short: vibe-coded and use-at-your-own-risk notice, key concepts, how a week works, install, how it was built (spec → plan → ledger).
 - `CLAUDE.md` points to the ledger and decisions when debugging.
+
+---
+
+## English test data, sidebar title, dev backfill (user request)
+- **Seed and E2E in English and euros:** the dev seed and CI E2E now use English and €. They should have from the start. The seed is a realistic school week: daily chores earn screen time, and allowance (≈7–13 €) comes from Friday's room tidy and the extras. Kindergartner Cato has no homework.
+- **Norwegian E2E step:** switches the user's profile language to nb and checks the panel follows (AC-8.5). The profile language wins over the browser's `selectedLanguage`.
+- **Sidebar title (D36):** it was hardcoded "Gjøremål". It now follows the HA system language when the integration loads: "Gjøremål" (nb/nn/no) or "Chores".
+- **`script/dev_backfill.sh` (dev only):** fills the open week up to today through the integration's own actions (fully audited), dated on time so nothing shows as late. It exists because chores created mid-week never get rows for past days (by design), which made screenshots sparse.
+- New README screenshot `docs/screenshot.png`, taken by the user.

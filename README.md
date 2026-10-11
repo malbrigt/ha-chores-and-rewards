@@ -4,7 +4,7 @@
 
 A weekly chores board for a kitchen touchscreen, running entirely inside Home Assistant. Kids tick off their own chores. Parents set up the rules and settle the week with a PIN. There is no gamification: just progress bars and done/not done.
 
-![Overview](docs/screenshot-overview.png)
+![Overview](docs/screenshot.png)
 
 ## Key concepts
 - **Kids:** as many as you like. Each gets a column on the overview, a week view, and one HA device with balance sensors.
@@ -19,7 +19,7 @@ A weekly chores board for a kitchen touchscreen, running entirely inside Home As
 ## How a week works
 1. Each day the screen shows every kid's chores. A tap ticks a chore at once, with no approval. Forgotten ticks can be fixed any day that week; they are flagged as late for the parent.
 2. At midnight, undone expected chores become *missed*. If HA was off, it catches up.
-3. On a currency's payout day, the parent opens **Utbetaling**, sees each kid's amount, and ticks it as paid or entered.
+3. On a currency's payout day, the parent opens **Payouts**, sees each kid's amount, and ticks it as paid or entered.
 4. Monday 00:00 closes the week automatically. Nothing carries over.
 
 **Parent mode** (🔒 → PIN):
@@ -37,7 +37,7 @@ Also:
 ## Install
 1. Copy `custom_components/chores_and_rewards` to `/config/custom_components/`, or add this repo to HACS as a custom *Integration* repository.
 2. Restart HA, then go to **Settings → Devices & services → Add integration → Chores and Rewards**, and pick a parent PIN.
-3. Open **Gjøremål** in the sidebar, unlock with the PIN, and set things up under **Administrer**.
+3. Open **Chores** (**Gjøremål** in Norwegian) in the sidebar, unlock with the PIN, and set things up under **Manage**.
 
 Notes:
 - **Tablet user:** the tablet can run as any HA user. Use a non-admin user if kids shouldn't reach HA's settings.

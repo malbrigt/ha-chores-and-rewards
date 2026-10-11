@@ -40,14 +40,15 @@ def wait_for_state(entity_id: str, expected: str, timeout: float = 5.0) -> None:
         time.sleep(0.2)
 
 
-def open_tablet(browser, name: str) -> Page:
+def open_tablet(browser, name: str, lang: str = "en") -> Page:
+    locale = {"en": "en-GB", "nb": "nb-NO"}[lang]
     context = browser.new_context(
-        viewport={"width": 1280, "height": 800}, locale="nb-NO", timezone_id="Europe/Oslo"
+        viewport={"width": 1280, "height": 800}, locale=locale, timezone_id="Europe/Oslo"
     )
     # Log in the way the HA frontend does: tokens + language in localStorage.
     context.add_init_script(
         f"localStorage.setItem('hassTokens', {json.dumps(json.dumps(TOKENS))});"
-        "localStorage.setItem('selectedLanguage', '\"nb\"');"
+        f"localStorage.setItem('selectedLanguage', '\"{lang}\"');"
     )
     page = context.new_page()
     page.on("pageerror", lambda err: print(f"[{name}] page error: {err}", file=sys.stderr))
@@ -67,26 +68,26 @@ def main() -> None:
         a = open_tablet(browser, "A")
         b = open_tablet(browser, "B")
         expect(a.locator("header")).to_contain_text(
-            re.compile(r"(Mandag|Tirsdag|Onsdag|Torsdag|Fredag|Lørdag|Søndag)")
+            re.compile(r"(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)")
         )
-        expect(kid(a, "Ada")).to_contain_text("Skjermtid")
+        expect(kid(a, "Ada")).to_contain_text("Screen time")
         a.screenshot(path=ARTIFACTS / "1-overview.png")
 
         # Kid taps a chore on tablet A → done; tablet B updates live (AC-6.1).
-        row_a = kid(a, "Ada").locator(".chore", has_text="Dekke bordet")
+        row_a = kid(a, "Ada").locator(".chore", has_text="Make your bed")
         row_a.click()
         expect(row_a).to_have_class(re.compile(r"\bdone\b"))
-        row_b = kid(b, "Ada").locator(".chore", has_text="Dekke bordet")
+        row_b = kid(b, "Ada").locator(".chore", has_text="Make your bed")
         expect(row_b).to_have_class(re.compile(r"\bdone\b"), timeout=5_000)
-        expect(kid(b, "Ada")).to_contain_text("20/120 min")
+        expect(kid(b, "Ada")).to_contain_text("10/120 min")
         # Sensors refresh through a 1 s debouncer, so allow a moment for the value.
-        wait_for_state("sensor.ada_skjermtid", "20")
+        wait_for_state("sensor.ada_screen_time", "10")
         b.screenshot(path=ARTIFACTS / "2-live-update.png")
 
         # Week view for Ada.
         kid(a, "Ada").locator(".kid-name").click()
         expect(a.locator("table.week")).to_be_visible()
-        expect(a.locator("header")).to_contain_text("Uke")
+        expect(a.locator("header")).to_contain_text("Week")
         a.screenshot(path=ARTIFACTS / "3-week.png")
         a.locator('[data-action="back"]').click()
 
@@ -95,28 +96,43 @@ def main() -> None:
         for digit in "0000":
             a.locator(f'[data-action="pin-digit"][data-digit="{digit}"]').click()
         a.locator('[data-action="pin-ok"]').click()
-        expect(a.locator(".toast")).to_contain_text("Feil PIN")
+        expect(a.locator(".toast")).to_contain_text("Wrong PIN")
         for digit in "1234":
             a.locator(f'[data-action="pin-digit"][data-digit="{digit}"]').click()
         a.locator('[data-action="pin-ok"]').click()
         expect(a.locator('[data-action="tab"][data-tab="payouts"]')).to_be_visible()
         a.screenshot(path=ARTIFACTS / "4-parent.png")
         a.locator('[data-action="tab"][data-tab="payouts"]').click()
-        card = a.locator(".card").filter(has_text="Skjermtid")
+        card = a.locator(".card").filter(has_text="Screen time")
         card.locator("tr", has_text="Ada").locator('[data-action="pay"]').click()
-        expect(card.locator("tr", has_text="Ada")).to_contain_text("Utbetalt 20 min")
+        expect(card.locator("tr", has_text="Ada")).to_contain_text("Paid 10 min")
         a.screenshot(path=ARTIFACTS / "5-payouts.png")
 
-        # "Detaljer" opens the audit log filtered on Ada + this week (D44).
+        # "Details" opens the audit log filtered on Ada + this week (D44).
         card.locator("tr", has_text="Ada").locator('[data-action="details"]').click()
-        expect(a.locator("main")).to_contain_text("Krysset av")
-        expect(a.locator("main")).to_contain_text("Dekke bordet")
+        expect(a.locator("main")).to_contain_text("Ticked")
+        expect(a.locator("main")).to_contain_text("Make your bed")
         a.screenshot(path=ARTIFACTS / "7-log.png")
 
         # Admin tab renders.
         a.locator('[data-action="tab"][data-tab="admin"]').click()
-        expect(a.locator("main")).to_contain_text("Dekke bordet")
+        expect(a.locator("main")).to_contain_text("Make your bed")
         a.screenshot(path=ARTIFACTS / "6-admin.png")
+
+        # The panel follows the HA user's language: Norwegian (AC-8.5). The profile
+        # setting wins over the browser's, so switch it the way HA's profile page does.
+        a.evaluate(
+            """() => document.querySelector("home-assistant").hass.callWS({
+                type: "frontend/set_user_data", key: "language",
+                value: {language: "nb", number_format: "language", time_format: "language",
+                        date_format: "language", time_zone: "local", first_weekday: "language"}})"""
+        )
+        n = open_tablet(browser, "NB", lang="nb")
+        expect(n.locator("header")).to_contain_text(
+            re.compile(r"(Mandag|Tirsdag|Onsdag|Torsdag|Fredag|Lørdag|Søndag)", re.IGNORECASE)
+        )
+        expect(kid(n, "Ada")).to_contain_text("Morgen", ignore_case=True)
+        n.screenshot(path=ARTIFACTS / "8-norwegian.png")
         browser.close()
     print("E2E passed. Screenshots:", ARTIFACTS)
 

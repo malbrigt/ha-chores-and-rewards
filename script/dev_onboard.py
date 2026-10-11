@@ -84,7 +84,7 @@ def main():
                 "name": "Dev",
                 "username": "dev",
                 "password": "dev",
-                "language": "nb",
+                "language": "en",
             },
         )
         token = token_from_code(res["auth_code"])

@@ -19,6 +19,15 @@ SYSTEM_USER = "system"
 
 PANEL_URL = "chores-and-rewards"
 PANEL_ELEMENT = "chores-and-rewards-panel"
-PANEL_TITLE = "Gjøremål"  # custom panels can't translate the sidebar title (D36)
+# Custom panels can't translate the sidebar title, so it follows the HA system language (D36).
+PANEL_TITLES = {"nb": "Gjøremål", "en": "Chores"}
+
+
+def panel_title(language: str) -> str:
+    """Sidebar title for HA's system language: Norwegian variants → nb, else en."""
+    norwegian = any(language == p or language.startswith(f"{p}-") for p in ("nb", "nn", "no"))
+    return PANEL_TITLES["nb" if norwegian else "en"]
+
+
 PANEL_ICON = "mdi:broom"
 STATIC_URL = f"/{DOMAIN}_static"
