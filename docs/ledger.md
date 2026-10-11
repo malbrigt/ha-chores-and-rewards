@@ -514,3 +514,8 @@ Three parallel reviews: UI against HA frontend conventions, backend against HA i
 - **Sidebar title (D36):** it was hardcoded "Gjøremål". It now follows the HA system language when the integration loads: "Gjøremål" (nb/nn/no) or "Chores".
 - **`script/dev_backfill.sh` (dev only):** fills the open week up to today through the integration's own actions (fully audited), dated on time so nothing shows as late. It exists because chores created mid-week never get rows for past days (by design), which made screenshots sparse.
 - New README screenshot `docs/screenshot.png`, taken by the user.
+
+---
+
+## Release v0.2.0 (user go-ahead)
+Manifest version 0.2.0. Since v0.1.0: kids fix past days, a replayable audit log with filters, a new database (old files backed up and recreated), the code review fixes (reconfigure flow, a device per kid, native dialogs), English sidebar title, docs.
