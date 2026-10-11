@@ -10,3 +10,7 @@ dev/config/*
 !dev/config/configuration.yaml
 dev/e2e-config/
 e2e/artifacts/
+
+# Local secrets (e.g. the HA access token for seeding a real install)
+.ha_token
+*.token
