@@ -519,3 +519,14 @@ Three parallel reviews: UI against HA frontend conventions, backend against HA i
 
 ## Release v0.2.0 (user go-ahead)
 Manifest version 0.2.0. Since v0.1.0: kids fix past days, a replayable audit log with filters, a new database (old files backed up and recreated), the code review fixes (reconfigure flow, a device per kid, native dialogs), English sidebar title, docs.
+
+---
+
+## Step 15: extra chores pay or win back (user request)
+- **Rule (D49):** an extra earns one currency. A can't-be-lost currency (allowance) is payment and always on offer. A can-be-lost one (screen time) is refill only: offered while the kid has lost some this week, and a refill never exceeds the loss. Two options → the kid picks in a small sheet; one → the tap just ticks.
+- **Found while building:** bonus could never win anything back before, because the cap was applied before the loss (`min(earned, cap) − lost`). Refill is now added after the loss (D5).
+- **Schema v2:** `instances.currency_id` (only set when done, a CHECK). The first real migration since v0.2.0; tested from a v1 file.
+- **Spec:** "make-up" moved from §10 (later) into §5, at the user's request. `CLAUDE.md` non-goals updated.
+- Week grid rows now carry values, so a past-day extra can be picked from the week view. The parent ⋯ menu offers "Mark done: …" per option.
+- Smoke tests now start each test with a fresh panel (happy-dom kept focus on a detached node).
+- **Noticed, not fixed:** `device_registry.async_get_device` is deprecated (stops working in HA 2027.8); `sensor.py` should use `async_get_device_by_identifier`.

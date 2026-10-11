@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
-from .ws_helpers import chore, err, ok, unlock
+from .ws_helpers import chore, err, kid_board, midnight, ok, unlock
 
 pytestmark = pytest.mark.freeze_time("2026-10-12 08:00:00+00:00")  # Mon 10:00 Oslo
 OSLO = ZoneInfo("Europe/Oslo")
@@ -65,6 +65,7 @@ async def test_get_state_board(ws):
     assert kid["balances"][SCREEN] == {
         "earned": 0,
         "lost": 0,
+        "refilled": 0,
         "adjustments": 0,
         "cap": 60,
         "total": 0,
@@ -241,3 +242,40 @@ async def test_get_state_future_day_preview(ws):
     assert not (await _board(ws))["is_preview"]
     store = ws.entry.runtime_data
     assert await store.async_read(lambda r: r.list_instances(day=date(2026, 10, 14))) == []
+
+
+async def test_extra_pays_or_refills_a_loss(hass, ws, freezer):
+    """AC-6.6, AC-6.7, D49: an extra earns one currency; screen time only to win back a loss."""
+    ada = await _family(ws, screen_max=60)
+    token = await unlock(ws)
+    extra = chore(
+        [ada],
+        name="Trash",
+        chore_type="bonus",
+        slot="anytime",
+        weekdays=[],
+        values={SCREEN: 15, MONEY: 1},
+    )
+    await ok(ws, "admin/chore/save", token=token, **extra)
+    trash = next(i for i in (await kid_board(ws, ada))["bonus"] if i["name"] == "Trash")
+
+    # Nothing lost yet: screen time isn't on offer, the tick pays allowance.
+    assert await err(ws, "set_done", instance_id=trash["id"], done=True, currency_id=1) == (
+        "nothing_lost"
+    )
+    res = await ok(ws, "set_done", instance_id=trash["id"], done=True)
+    assert res["instance"]["currency_id"] == 2
+    res = await ok(ws, "set_done", instance_id=trash["id"], done=False)
+    assert res["instance"]["currency_id"] is None
+
+    # Monday's chores are missed at midnight (−40 min). On Tuesday the trash wins 15 back.
+    await midnight(hass, freezer, 13, 18)
+    trash = next(i for i in (await kid_board(ws, ada))["bonus"] if i["name"] == "Trash")
+    res = await ok(ws, "set_done", instance_id=trash["id"], done=True, currency_id=1)
+    assert res["instance"]["currency_id"] == 1
+    bal = (await kid_board(ws, ada))["balances"]
+    assert (bal[SCREEN]["lost"], bal[SCREEN]["refilled"]) == (40, 15)
+    assert bal[MONEY]["total"] == 0  # the trash paid screen time, not allowance
+
+    log = await ws.entry.runtime_data.async_read(lambda r: r.list_audit(actions=["check"]))
+    assert '"currency_id": 1' in log[0]["after"]

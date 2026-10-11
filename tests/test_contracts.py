@@ -13,11 +13,14 @@ from custom_components.chores_and_rewards.const import DOMAIN
 from custom_components.chores_and_rewards.db import DEFAULT_SETTINGS
 from custom_components.chores_and_rewards.logic import (
     Actor,
+    Balance,
     ChoreType,
+    Currency,
     Instance,
     RuleError,
     Slot,
     Status,
+    earn_options,
     transition,
     undo_status,
 )
@@ -25,6 +28,7 @@ from custom_components.chores_and_rewards.logic import (
 ROOT = Path(__file__).parent.parent
 FIXTURE = json.loads((ROOT / "tests/fixtures/parent_actions.json").read_text())
 KID_FIXTURE = json.loads((ROOT / "tests/fixtures/kid_actions.json").read_text())
+EARN_FIXTURE = json.loads((ROOT / "tests/fixtures/earn_options.json").read_text())
 TODAY = date(2026, 10, 9)  # Friday, so "yesterday" is in the same week
 
 
@@ -85,6 +89,29 @@ def test_kid_tap_matches_transition(case):
     else:
         tap = "tick" if _allowed(inst, Status.DONE) else None
     assert tap == case["tap"]
+
+
+@pytest.mark.parametrize("case", EARN_FIXTURE["cases"])
+def test_earn_options_match_fixture(case):
+    """AC-6.6. panel.js earnOptions is tested against the same fixture (tests/js)."""
+    currencies = [
+        Currency(c["id"], "x", "u", payout_weekday=4, can_be_lost=c["can_be_lost"])
+        for c in EARN_FIXTURE["currencies"]
+    ]
+    balances = {
+        int(cid): Balance(earned=0, lost=lost, refilled=ref, adjustments=0, cap=None, total=0)
+        for cid, (lost, ref) in case["balances"].items()
+    }
+    inst = Instance(
+        kid_id=1,
+        chore_id=1,
+        day=TODAY,
+        type=ChoreType.BONUS,
+        slot=Slot.ANYTIME,
+        name="x",
+        values={int(k): v for k, v in case["values"].items()},
+    )
+    assert earn_options(inst, currencies, balances) == case["options"]
 
 
 def _registered_types() -> set[str]:

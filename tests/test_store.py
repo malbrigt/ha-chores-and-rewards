@@ -12,6 +12,7 @@ from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.chores_and_rewards import backup, diagnostics
 from custom_components.chores_and_rewards.const import SIGNAL_UPDATED
+from custom_components.chores_and_rewards.db import SCHEMA_VERSION
 from custom_components.chores_and_rewards.logic import (
     Chore,
     ChoreType,
@@ -229,7 +230,7 @@ async def test_diagnostics_redacts_pin(hass, setup_entry, freezer):
     assert diag["entry"]["data"]["pin_hash"] == "**REDACTED**"
     assert diag["db"]["counts"]["kids"] == 1
     assert diag["db"]["open_weeks"] == ["2026-10-12"]
-    assert diag["db"]["schema_version"] == 1
+    assert diag["db"]["schema_version"] == SCHEMA_VERSION
 
 
 async def test_week_balances_matches_per_kid_rules(hass, setup_entry, freezer):

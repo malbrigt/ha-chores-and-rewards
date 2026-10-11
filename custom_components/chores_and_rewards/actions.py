@@ -18,6 +18,7 @@ from .db import Repo
 from .logic import (
     Actor,
     Chore,
+    ChoreType,
     Currency,
     Instance,
     Kid,
@@ -25,6 +26,7 @@ from .logic import (
     Status,
     WeekStatus,
     days_to_finalize,
+    earn_options,
     finalize,
     instances_for_day,
     is_late,
@@ -70,14 +72,14 @@ def _record_status(
 ) -> Instance:
     """Store a status change and audit it with the chore's day and a late flag (D43)."""
     instance_id = require(new.id)
-    status_at = repo.set_status(instance_id, new.status, by=status_by)
+    status_at = repo.set_status(instance_id, new.status, status_by, new.currency_id)
     repo.audit(
         action,
         user_id=ctx.by,
         entity="instance",
         entity_id=instance_id,
-        before={"status": old.status.value},
-        after={"status": new.status.value, "chore": new.name},
+        before={"status": old.status.value, "currency_id": old.currency_id},
+        after={"status": new.status.value, "chore": new.name, "currency_id": new.currency_id},
         kid_id=new.kid_id,
         day=new.day,
         late=is_late(new.day, ctx.today),
@@ -85,21 +87,46 @@ def _record_status(
     return replace(new, status_at=status_at)
 
 
-def set_done(repo: Repo, ctx: Ctx, instance_id: int, done: bool) -> Instance:
-    """Kid tap: tick or untick any day of the open week, no approval (AC-6.1, AC-6.2, D8)."""
+def _earns(repo: Repo, ctx: Ctx, inst: Instance, status: Status, wanted: int | None) -> int | None:
+    """The currency a done extra chore earns: the kid's pick, else the first option (D49).
+
+    Expected chores earn all their values (None), and so does anything not done.
+    """
+    if status is not Status.DONE or inst.type is not ChoreType.BONUS:
+        return None
+    balances = kid_balances(repo, inst.kid_id, week_start(inst.day), ctx.today)
+    options = earn_options(inst, repo.list_currencies(), balances)
+    if wanted is None:
+        return options[0] if options else None
+    if wanted not in options:
+        raise RuleError("nothing_lost" if wanted in inst.values else "not_allowed")
+    return wanted
+
+
+def set_done(
+    repo: Repo, ctx: Ctx, instance_id: int, done: bool, currency_id: int | None = None
+) -> Instance:
+    """Kid tap: tick or untick any day of the open week, no approval (AC-6.1, AC-6.2, D8).
+
+    Ticking an extra chore earns one currency, `currency_id` if given (AC-6.6, D49).
+    """
     inst = require(repo.get_instance(instance_id))
     _require_open(repo, week_start(inst.day))
     target = Status.DONE if done else undo_status(inst, ctx.today)
     new = transition(inst, target, Actor.KID, ctx.today)
+    new = replace(new, currency_id=_earns(repo, ctx, inst, target, currency_id))
     action = AuditAction.CHECK if done else AuditAction.UNCHECK
     return _record_status(repo, action, ctx, inst, new, status_by=Actor.KID.value)
 
 
-def set_status(repo: Repo, ctx: Ctx, instance_id: int, status: Status) -> Instance:
+def set_status(
+    repo: Repo, ctx: Ctx, instance_id: int, status: Status, currency_id: int | None = None
+) -> Instance:
     """Parent: reject, mark done/excused/missed, or reset today (AC-7.4, AC-7.5, D19)."""
     inst = require(repo.get_instance(instance_id))
     _require_open(repo, week_start(inst.day))
     new = transition(inst, status, Actor.PARENT, ctx.today)
+    new = replace(new, currency_id=_earns(repo, ctx, inst, status, currency_id))
     return _record_status(repo, AuditAction.SET_STATUS, ctx, inst, new, status_by=ctx.by)
 
 

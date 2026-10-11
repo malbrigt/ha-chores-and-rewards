@@ -64,6 +64,7 @@ def replay(entries: list[dict[str, Any]]) -> dict[str, Any]:
             del st["instances"][eid]
         elif action in STATUS_ACTIONS:
             st["instances"][eid]["status"] = after["status"]
+            st["instances"][eid]["currency_id"] = after.get("currency_id")  # D49
         elif action is A.ADJUST:
             st["adjustments"][eid] = {
                 "week": after["week"],

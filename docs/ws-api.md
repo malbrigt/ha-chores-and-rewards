@@ -72,7 +72,7 @@ Settings keys:
 |---|---|---|
 | `get_state` | `day?` (default today) | `{today, day, week, week_status, is_preview, kids, currencies, settings, board: {kid_id: {chores: [instance], bonus: [instance], balances: {cid: balance}}}}`. `chores` holds expected chores ordered morning → afternoon → anytime. Also runs the catch-up rollover if the midnight job was missed. A future day returns an unsaved preview from the schedule (`is_preview`, instance `id` null). |
 | `get_week` | `kid_id`, `week?` (any date in that week) | `{week, week_status, days: [date], rows: [{chore_id, name, slot, type, cells: {date: status}, ids: {date: instance_id}, late: {date: bool}}], balances}` |
-| `set_done` | `instance_id`, `done: bool` | `{instance}`. Kid rules (D8): any day up to today in the open week. Ticks pending/missed → done; unticks done → pending (today or bonus) or missed (past expected). Excused and rejected are parent-only. Every call is audited as `check`/`uncheck` with the chore's day and a late flag (D43). |
+| `set_done` | `instance_id`, `done: bool`, `currency_id?` | `{instance}`. An extra chore earns one currency: `currency_id` if given (must be in the options, else `nothing_lost`/`not_allowed`), otherwise the first option (D49). Kid rules (D8): any day up to today in the open week. Ticks pending/missed → done; unticks done → pending (today or bonus) or missed (past expected). Excused and rejected are parent-only. Every call is audited as `check`/`uncheck` with the chore's day and a late flag (D43). |
 | `subscribe` | (nothing) | Pushes `{event: "updated"}` after any change; the panel then re-reads `get_state`. The event can arrive before the result of the command that caused it. |
 
 - `instance` = `{id, kid_id, chore_id, day, type, slot, name, icon, values, status, status_at, late}`. `late` is true for a done chore ticked on a later local day.
@@ -82,7 +82,7 @@ Settings keys:
 
 | Type | Request | Result |
 |---|---|---|
-| `parent/set_status` | `instance_id`, `status` (`done`, `excused`, `rejected`, `missed`, `pending`) | `{instance}` |
+| `parent/set_status` | `instance_id`, `status` (`done`, `excused`, `rejected`, `missed`, `pending`), `currency_id?` (extra marked done, D49) | `{instance}` |
 | `parent/adjust` | `kid_id`, `currency_id`, `amount` (± int, not 0), `note` (required) | `{id}`. Applies to the current week, which must be open. |
 | `parent/payouts` | `week?` | `{week, week_status, items: [{kid_id, currency_id, amount_due, paid: {amount, done_at}\|null, after_payout, payout_day, is_payout_day}], adjustments}` |
 | `parent/payout` | `kid_id`, `currency_id`, `paid: bool`, `week?` | `{amount}`. Ticking stores the current balance as the amount (D11). Also works for closed weeks, so late payouts are possible. |

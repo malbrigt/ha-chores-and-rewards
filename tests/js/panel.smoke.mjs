@@ -33,10 +33,10 @@ const STATE = {
   },
 };
 
-function fakeHass() {
+function fakeHass(state = STATE) {
   const calls = [];
   const replies = {
-    get_state: () => structuredClone(STATE),
+    get_state: () => structuredClone(state),
     get_week: () => ({ week: "2026-10-05", week_status: "open", days: ["2026-10-05", "2026-10-06",
       "2026-10-07", "2026-10-08", TODAY, "2026-10-10", "2026-10-11"],
       rows: [{ chore_id: 2, name: "Dekke bordet", slot: "afternoon", type: "expected",
@@ -96,8 +96,12 @@ const click = (root, selector) => {
   el.click();
 };
 
-async function mount() {
-  const hass = fakeHass();
+async function mount(state = STATE) {
+  // Each test starts with a fresh panel: drop earlier ones, and with them their focus
+  // (happy-dom otherwise keeps pointing activeElement at a detached node).
+  for (const old of mounted.splice(0)) old.remove();
+  document.body.focus?.();
+  const hass = fakeHass(state);
   const el = new ChoresPanel();
   el.hass = hass;
   document.body.appendChild(el);
@@ -278,4 +282,29 @@ test("native dialogs: Escape closes, Enter saves a form, focus survives a reload
   kidButton.focus();
   await root.host._reload();
   assert.equal(root.activeElement?.dataset.kid, "2");
+});
+
+test("extra chore: lost screen time → pick pay or win back; nothing lost → plain tick (D49)", async () => {
+  const allowance = { ...STATE.currencies[0], id: 2, name: "Ukepenger", unit: "kr", can_be_lost: false, sort: 1 };
+  const state = structuredClone(STATE);
+  state.currencies.push(allowance);
+  state.board[1].bonus[0].values = { 1: 10, 2: 1 };
+  state.board[1].balances = { 1: { ...balance, lost: 10, refilled: 0 }, 2: { ...balance, cap: null } };
+  const { root, hass } = await mount(state);
+  click(root, '[data-action="toggle"][data-id="3"]');
+  await tick();
+  const items = [...root.querySelectorAll('[data-action="sheet-item"]')].map((b) => b.textContent.trim());
+  assert.deepEqual(items, ["1 kr Ukepenger", "Vinn tilbake 10 min Skjermtid"]);
+  click(root, '[data-action="sheet-item"][data-index="1"]');
+  await tick();
+  assert.deepEqual(hass.calls.at(-1), {
+    type: "chores_and_rewards/set_done", instance_id: 3, done: true, currency_id: 1,
+  });
+
+  state.board[1].balances[1].refilled = 10; // all won back: only payment is left
+  const second = await mount(state);
+  click(second.root, '[data-action="toggle"][data-id="3"]');
+  await tick();
+  assert.equal(second.root.querySelector('[data-action="sheet-item"]'), null);
+  assert.deepEqual(second.hass.calls.at(-1), { type: "chores_and_rewards/set_done", instance_id: 3, done: true });
 });

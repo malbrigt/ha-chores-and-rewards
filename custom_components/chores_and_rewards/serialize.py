@@ -53,6 +53,7 @@ def instance_json(i: Instance) -> dict[str, Any]:
         "icon": i.icon,
         "values": {str(k): v for k, v in i.values.items()},
         "status": i.status.value,
+        "currency_id": i.currency_id,
     }
 
 

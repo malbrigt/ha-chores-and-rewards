@@ -25,6 +25,8 @@ IDs follow the spec sections. Tests reference these IDs.
 - AC-6.1 WHEN a kid taps a chore THEN it is done immediately (no approval) and progress updates live.
 - AC-6.2 WHEN a kid unticks a chore today THEN it returns to pending. WHEN they tick or untick a past day in the open week THEN it is allowed (untick → missed), audited and flagged late (D8, D43). WHEN the week is closed THEN it is refused.
 - AC-6.3 WHEN HA was off across midnight(s) THEN on startup each missed day is processed in order, exactly once.
+- AC-6.6 WHEN a kid ticks an extra chore THEN it earns one currency: a can't-be-lost currency (payment) is always on offer, a can-be-lost one only while the kid has lost some this week. WHEN there are two options THEN the kid picks; WHEN one THEN no question (D49).
+- AC-6.7 WHEN an extra chore refills a lost currency THEN the balance rises by at most what was lost, and never above the cap (D49).
 
 ## §7 PIN
 - AC-7.1 WHEN the correct PIN is given THEN a session opens that expires after 5 min idle.

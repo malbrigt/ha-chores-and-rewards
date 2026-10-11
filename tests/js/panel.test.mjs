@@ -201,3 +201,14 @@ test("html`` escapes values unless raw(); arrays and nested templates compose", 
   assert.equal(String(html`${[html`<p>${"a&b"}</p>`, "<x>"]}`), "<p>a&amp;b</p>&lt;x&gt;");
   assert.equal(String(html`${null}${undefined}${false}${0}`), "0");
 });
+
+test("earnOptions matches the shared fixture used by the Python tests (AC-6.6, D49)", async () => {
+  const { earnOptions } = await import("../../custom_components/chores_and_rewards/frontend/panel.js");
+  const fixture = JSON.parse(readFileSync(new URL("../fixtures/earn_options.json", import.meta.url)));
+  for (const c of fixture.cases) {
+    const balances = Object.fromEntries(
+      Object.entries(c.balances).map(([cid, [lost, refilled]]) => [cid, { lost, refilled }]),
+    );
+    assert.deepEqual(earnOptions({ values: c.values }, fixture.currencies, balances), c.options, JSON.stringify(c));
+  }
+});

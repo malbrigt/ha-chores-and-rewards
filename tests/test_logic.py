@@ -235,6 +235,34 @@ def test_balance_loss_floors_at_zero():
     assert compute_balance(SCREEN, items, 0, 120).total == 20
 
 
+TRASH = Chore(
+    4, "Trash", ChoreType.BONUS, frozenset({10}), frozenset(), Slot.ANYTIME, {1: 15, 2: 1}
+)
+
+
+def test_extra_earns_only_the_picked_currency():
+    """AC-6.6, D49: one currency per extra; payment (allowance) as before."""
+    done = replace(inst(TRASH, status=Status.DONE), currency_id=2)
+    assert compute_balance(MONEY, [done], 0, 10).total == 1
+    assert compute_balance(SCREEN, [done], 0, 120).total == 0
+
+
+def test_extra_refills_at_most_the_loss():
+    """AC-6.7, D49: refill never exceeds the loss, never the cap, and needs a loss."""
+    earned = [inst(day=d, status=Status.DONE) for d in (MON, TUE)]  # 60 min
+    missed = inst(BED, status=Status.MISSED)  # -10
+    refill = replace(inst(TRASH, status=Status.DONE), currency_id=1)  # 15 min
+    b = compute_balance(SCREEN, [*earned, missed, refill], 0, 120)
+    assert (b.lost, b.refilled, b.total) == (10, 10, 60)
+    b = compute_balance(SCREEN, [*earned, refill], 0, 120)
+    assert (b.refilled, b.total) == (0, 60)  # nothing lost, nothing to refill
+    full = [
+        inst(day=d, status=Status.DONE) for d in (MON, TUE, date(2026, 10, 7), date(2026, 10, 8))
+    ]
+    b = compute_balance(SCREEN, [*full, missed, refill], 0, 120)  # min(120,120) - 10 + 10
+    assert b.total == 120
+
+
 def test_balance_cannot_be_lost():
     """AC-3.3."""
     items = [inst(status=Status.DONE), inst(day=TUE, status=Status.MISSED)]

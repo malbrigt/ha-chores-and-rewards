@@ -1,0 +1,14 @@
+{
+  "_comment": "Which currencies a done extra chore may earn (D49), shared by pytest (logic.earn_options) and node (panel.js earnOptions). Currency 1 can be lost (screen time), 2 can't (allowance). balances: {cid: [lost, refilled]}. Payment first, then refills.",
+  "currencies": [{"id": 1, "can_be_lost": true}, {"id": 2, "can_be_lost": false}],
+  "cases": [
+    {"values": {"1": 10, "2": 1}, "balances": {"1": [0, 0], "2": [0, 0]}, "options": [2]},
+    {"values": {"1": 10, "2": 1}, "balances": {"1": [10, 0], "2": [0, 0]}, "options": [2, 1]},
+    {"values": {"1": 10, "2": 1}, "balances": {"1": [10, 10], "2": [0, 0]}, "options": [2]},
+    {"values": {"1": 10, "2": 1}, "balances": {"1": [20, 10], "2": [0, 0]}, "options": [2, 1]},
+    {"values": {"1": 10}, "balances": {"1": [0, 0], "2": [0, 0]}, "options": []},
+    {"values": {"1": 10}, "balances": {"1": [5, 0], "2": [0, 0]}, "options": [1]},
+    {"values": {"2": 1}, "balances": {"1": [30, 0], "2": [0, 0]}, "options": [2]},
+    {"values": {"1": 10, "2": 1}, "balances": {}, "options": [2]}
+  ]
+}

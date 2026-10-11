@@ -83,6 +83,32 @@ def test_upgrade_backs_up_and_applies(tmp_path, monkeypatch):
     assert [k.name for k in backup.run(lambda r: r.list_kids())] == ["Ada"]
 
 
+def test_v1_to_v2_keeps_rows_and_adds_earn_currency(tmp_path, monkeypatch):
+    """D49: a v0.2.0 database (schema v1) gains instances.currency_id, rows kept as NULL."""
+    path = tmp_path / "chores.db"
+    monkeypatch.setattr(dbmod, "MIGRATIONS", dbmod.MIGRATIONS[:1])
+    monkeypatch.setattr(dbmod, "SCHEMA_VERSION", 1)
+    old = Database(path)
+    old.migrate()
+    kid = old.run(lambda r: r.save_kid(Kid(0, "Ada")))
+    trash = Chore(0, "Trash", ChoreType.BONUS, frozenset({kid}), frozenset(), Slot.ANYTIME, {1: 5})
+    old.run(
+        lambda r: r.insert_instances(
+            instances_for_day([r.get_chore(r.save_chore(trash))], [kid], MON)
+        )
+    )
+    monkeypatch.undo()
+
+    db = Database(path)
+    assert db.migrate() == SCHEMA_VERSION == 2
+    (row,) = db.run(lambda r: r.list_instances())
+    assert row.name == "Trash" and row.currency_id is None
+    db.run(lambda r: r.set_status(row.id, Status.DONE, "kid", currency_id=1))
+    assert db.run(lambda r: r.get_instance(row.id)).currency_id == 1
+    with pytest.raises(sqlite3.IntegrityError):  # only a done row earns a currency
+        db.run(lambda r: r.set_status(row.id, Status.PENDING, "kid", currency_id=1))
+
+
 def test_failed_migration_rolls_back(tmp_path, monkeypatch):
     path = tmp_path / "chores.db"
     Database(path).migrate()

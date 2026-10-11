@@ -26,7 +26,7 @@ When debugging an existing problem, check `ledger.md` and `decisions.md` first. 
 - Commit: `git status` first (`git add -A` for new files), and one concise commit per step. Update `docs/ledger.md`. After a push, check CI by commit SHA.
 
 ## Non-goals (spec §10)
-No gamification (leaderboards, badges, streaks, confetti, bonus counters). No make-up chores, device control, auto payments, shop, carry-over, photo proof, approval queue or notifications.
+No gamification (leaderboards, badges, streaks, confetti, bonus counters). No device control, auto payments, shop, carry-over, photo proof, approval queue or notifications.
 
 ## Communication
 Extremely concise. Ask only when blocked. Explain HA concepts in one "junior dev" line.

@@ -135,12 +135,14 @@ class Instance:
     icon: str = ""
     id: int | None = None  # set once stored
     status_at: str | None = None  # ISO UTC time of the last status change
+    currency_id: int | None = None  # extra chores: the one currency it earns (D49)
 
 
 @dataclass(frozen=True)
 class Balance:
     earned: int  # raw sum of done values
     lost: int  # sum of missed/rejected expected values (0 if the currency can't be lost)
+    refilled: int  # won back by extra chores, never more than `lost` (D49)
     adjustments: int
     cap: int | None  # None = no cap
     total: int  # what the kid has: clamped to 0..cap
@@ -277,6 +279,9 @@ def transition(inst: Instance, target: Status, actor: Actor, today: date) -> Ins
 
 
 def _value(inst: Instance, currency_id: int) -> int:
+    """What the instance is worth in a currency. An extra earns only its chosen one (D49)."""
+    if inst.currency_id is not None and inst.currency_id != currency_id:
+        return 0
     return inst.values.get(currency_id, 0)
 
 
@@ -311,23 +316,56 @@ def resolve_cap(currency: Currency, kid_max: int | None, pot: int) -> int | None
 def compute_balance(
     currency: Currency, instances: Iterable[Instance], adjustments: int, cap: int | None
 ) -> Balance:
-    """Balance for one kid and currency over one week's instances (D5)."""
-    earned = lost = 0
+    """Balance for one kid and currency over one week's instances (D5).
+
+    Extra chores in a currency that can be lost only refill what was lost (D49).
+    """
+    earned = lost = refill = 0
     for inst in instances:
         value = _value(inst, currency.id)
         if inst.status is Status.DONE:
-            earned += value
+            if inst.type is ChoreType.BONUS and currency.can_be_lost:
+                refill += value
+            else:
+                earned += value
         elif (
             currency.can_be_lost
             and inst.type is ChoreType.EXPECTED
             and inst.status in (Status.MISSED, Status.REJECTED)
         ):
             lost += value
+    refilled = min(refill, lost)
     capped = earned if cap is None else min(earned, cap)
-    total = max(0, capped - lost + adjustments)
+    total = max(0, capped - lost + refilled + adjustments)
     if cap is not None:
         total = min(total, cap)
-    return Balance(earned=earned, lost=lost, adjustments=adjustments, cap=cap, total=total)
+    return Balance(
+        earned=earned,
+        lost=lost,
+        refilled=refilled,
+        adjustments=adjustments,
+        cap=cap,
+        total=total,
+    )
+
+
+def earn_options(
+    inst: Instance, currencies: Iterable[Currency], balances: Mapping[int, Balance]
+) -> list[int]:
+    """Currencies a done extra chore may earn, payment first, then refills (D49).
+
+    A currency that can't be lost is payment and always on offer. One that can be lost is
+    refill only: on offer while the kid still has some of it to win back this week.
+    """
+    payment, refill = [], []
+    for c in currencies:
+        if inst.values.get(c.id, 0) <= 0:
+            continue
+        if not c.can_be_lost:
+            payment.append(c.id)
+        elif (b := balances.get(c.id)) is not None and b.lost > b.refilled:
+            refill.append(c.id)
+    return payment + refill
 
 
 # --- Payout -------------------------------------------------------------------

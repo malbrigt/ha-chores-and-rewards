@@ -235,6 +235,10 @@ async def ws_get_week(
                     "cells": {d.isoformat(): i.status.value for d, i in r["days"].items()},
                     "ids": {d.isoformat(): i.id for d, i in r["days"].items()},
                     "late": {d.isoformat(): _ticked_late(i) for d, i in r["days"].items()},
+                    "values": {
+                        d.isoformat(): {str(c): v for c, v in i.values.items()}
+                        for d, i in r["days"].items()
+                    },
                 }
                 for r in week_grid(repo, kid_id, week)
             ],
@@ -249,6 +253,7 @@ async def ws_get_week(
         vol.Required("type"): P + "set_done",
         vol.Required("instance_id"): int,
         vol.Required("done"): bool,
+        vol.Optional("currency_id"): int,  # extra chores: what to earn (D49)
     },
     parent=False,
 )
@@ -256,8 +261,14 @@ async def ws_set_done(
     hass: HomeAssistant, connection: ActiveConnection, msg: Msg, store: ChoresStore
 ) -> dict[str, Any]:
     await store.async_ensure_current()
-    run = partial(actions.set_done, ctx=_ctx(connection, store), instance_id=msg["instance_id"])
-    return {"instance": instance_out(await store.async_write(partial(run, done=msg["done"])))}
+    run = partial(
+        actions.set_done,
+        ctx=_ctx(connection, store),
+        instance_id=msg["instance_id"],
+        done=msg["done"],
+        currency_id=msg.get("currency_id"),
+    )
+    return {"instance": instance_out(await store.async_write(run))}
 
 
 # --- PIN ----------------------------------------------------------------------
@@ -476,6 +487,7 @@ async def ws_settings_save(
         vol.Required("type"): P + "parent/set_status",
         vol.Required("instance_id"): int,
         vol.Required("status"): vol.In([s.value for s in Status]),
+        vol.Optional("currency_id"): int,  # extra chores marked done: what to earn (D49)
     }
 )
 async def ws_parent_set_status(
@@ -487,6 +499,7 @@ async def ws_parent_set_status(
         ctx=_ctx(connection, store),
         instance_id=msg["instance_id"],
         status=Status(msg["status"]),
+        currency_id=msg.get("currency_id"),
     )
     return {"instance": instance_out(await store.async_write(run))}
 

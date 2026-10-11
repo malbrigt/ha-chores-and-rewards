@@ -225,9 +225,15 @@ SELECT strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'), 'system', 'currency_save', 'c
 FROM currencies;
 """
 
+# v2 (D49): a done extra chore earns the one currency the kid picked. NULL = all values.
+_V2_EARN_CURRENCY = """
+ALTER TABLE instances ADD COLUMN currency_id INTEGER REFERENCES currencies (id)
+    CHECK (currency_id IS NULL OR status = 'done');
+CREATE INDEX instances_currency ON instances (currency_id);
+"""
+
 # Index i holds the script that upgrades schema version i to i + 1 (PRAGMA user_version).
-# One clean schema for now (step 12); add scripts here for future changes.
-MIGRATIONS: list[str] = [_SCHEMA]
+MIGRATIONS: list[str] = [_SCHEMA, _V2_EARN_CURRENCY]
 SCHEMA_VERSION = len(MIGRATIONS)
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -602,12 +608,17 @@ class Repo:
         found = self._load_instances("WHERE id = ?", [instance_id])
         return found[0] if found else None
 
-    def set_status(self, instance_id: int, status: Status, by: str | None) -> str:
-        """Change one instance's status; returns its new status_at."""
+    def set_status(
+        self, instance_id: int, status: Status, by: str | None, currency_id: int | None = None
+    ) -> str:
+        """Change one instance's status (and the currency a done extra earns, D49).
+
+        Returns the new status_at.
+        """
         row = self._x(
-            "UPDATE instances SET status = ?, status_at = ?, status_by = ? WHERE id = ?"
-            " RETURNING status_at",
-            [status.value, now_iso(), by, instance_id],
+            "UPDATE instances SET status = ?, status_at = ?, status_by = ?, currency_id = ?"
+            " WHERE id = ? RETURNING status_at",
+            [status.value, now_iso(), by, currency_id, instance_id],
         ).fetchone()
         if row is None:
             raise LookupError(f"instance {instance_id}")
@@ -901,4 +912,5 @@ def _instance(r: sqlite3.Row, values: dict[int, int]) -> Instance:
         values=values,
         status=Status(r["status"]),
         status_at=r["status_at"],
+        currency_id=r["currency_id"],
     )

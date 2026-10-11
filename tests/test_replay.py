@@ -24,7 +24,10 @@ async def test_every_change_is_replayable_from_the_audit_log(hass, ws, freezer):
     bonus = dict(name="Vinduer", chore_type="bonus", slot="anytime", weekdays=[])
     windows = (
         await ok(
-            ws, "admin/chore/save", token=token, **chore([ada, cato], **bonus, values={"2": 50})
+            ws,
+            "admin/chore/save",
+            token=token,
+            **chore([ada, cato], **bonus, values={"1": 20, "2": 50}),
         )
     )["id"]
     bed = (await ok(ws, "admin/chore/save", token=token, **chore([cato], name="Seng")))["id"]
@@ -57,7 +60,9 @@ async def test_every_change_is_replayable_from_the_audit_log(hass, ws, freezer):
     # Midnight: missed + new day; a kid fixes yesterday (late).
     await midnight(hass, freezer, 13, hour=18)
     yesterday = await ok(ws, "get_state", day="2026-10-12")
-    await ok(ws, "set_done", instance_id=yesterday["board"][str(ada)]["bonus"][0]["id"], done=True)
+    # Ada's dishes were rejected (−30 min), so the extra can win screen time back (D49).
+    win = yesterday["board"][str(ada)]["bonus"][0]
+    await ok(ws, "set_done", instance_id=win["id"], done=True, currency_id=1)
     token = await unlock(ws)
     await ok(ws, "parent/close_week", token=token)
     await ok(ws, "parent/reopen_week", token=token)

@@ -19,6 +19,11 @@ export const STRINGS = {
     expected: "Forventet",
     week: "Uke {n}",
     lost: "−{n} tapt",
+    earn_title: "Hva vil du ha for «{name}»?",
+    earn_pay: "{amount} {name}",
+    earn_refill: "Vinn tilbake {amount} {name}",
+    act_done_for: "Merk som gjort: {label}",
+    error_nothing_lost: "Ingenting å vinne tilbake.",
     back: "Tilbake",
     more_actions: "Flere valg for {name}",
     adjust_for: "Juster saldo for {name}",
@@ -176,6 +181,11 @@ export const STRINGS = {
     expected: "Expected",
     week: "Week {n}",
     lost: "−{n} lost",
+    earn_title: "What do you want for “{name}”?",
+    earn_pay: "{amount} {name}",
+    earn_refill: "Win back {amount} {name}",
+    act_done_for: "Mark done: {label}",
+    error_nothing_lost: "Nothing to win back.",
     back: "Back",
     more_actions: "More options for {name}",
     adjust_for: "Adjust balance for {name}",
@@ -354,9 +364,10 @@ export function escapeHtml(value) {
 
 /** Progress bar data for one balance: percentage of the cap, or null if uncapped. */
 export function progress(balance) {
-  const { total = 0, cap = null, lost = 0 } = balance || {};
+  // `lost` is what is still lost: extra chores may have won some back (D49).
+  const { total = 0, cap = null, lost = 0, refilled = 0 } = balance || {};
   const pct = cap ? Math.min(100, Math.round((total / cap) * 100)) : null;
-  return { total, cap, lost, pct };
+  return { total, cap, lost: lost - refilled, pct };
 }
 
 /** ISO 8601 week number for a YYYY-MM-DD date. */
@@ -434,6 +445,23 @@ export function kidTap(inst, today) {
   if (inst.status === "done") return "untick";
   if (inst.status === "pending" || inst.status === "missed") return "tick";
   return null; // excused / rejected: decided by a parent
+}
+
+/**
+ * Currencies a done extra chore may earn, payment first, then refills (mirrors
+ * logic.earn_options, D49). Can't-be-lost currencies always pay; a can-be-lost one is
+ * only on offer while the kid still has some of it to win back this week.
+ */
+export function earnOptions(inst, currencies, balances) {
+  const payment = [];
+  const refill = [];
+  for (const c of currencies) {
+    if (!((inst.values?.[String(c.id)] ?? 0) > 0)) continue;
+    const b = balances?.[String(c.id)];
+    if (!c.can_be_lost) payment.push(c.id);
+    else if (b && b.lost > b.refilled) refill.push(c.id);
+  }
+  return [...payment, ...refill];
 }
 
 /** Audit log filter groups (D44). `review` is what "Detaljer" on a payout opens. */
@@ -684,6 +712,7 @@ const STYLES = `
   }
   .meter-label .amount { margin-left: auto; color: var(--primary-text-color); }
   .meter-label .lost { color: var(--error-color); font-size: 0.85rem; }
+  .chore .earned { margin-left: auto; color: var(--secondary-text-color); font-size: 0.85rem; }
   ha-icon { --mdc-icon-size: 20px; }
   .bar { height: 10px; border-radius: 5px; background: var(--divider-color); overflow: hidden; margin-top: 3px; }
   .fill { height: 100%; background: var(--primary-color); border-radius: 5px; }
@@ -1075,12 +1104,15 @@ export class ChoresPanel extends Base {
   _weekInstance(id, day) {
     const row = this._week?.rows.find((r) => r.ids?.[day] === id);
     if (!row) return null;
-    return { id, day, type: row.type, status: row.cells[day], name: row.name, kid_id: this._view.kidId };
+    const values = row.values?.[day] ?? {};
+    return { id, day, type: row.type, status: row.cells[day], name: row.name, kid_id: this._view.kidId, values };
   }
 
-  async _setDone(inst, done) {
+  async _setDone(inst, done, currencyId = null) {
     try {
-      const { instance } = await this._ws("set_done", { instance_id: inst.id, done });
+      const payload = { instance_id: inst.id, done };
+      if (currencyId !== null) payload.currency_id = currencyId;
+      const { instance } = await this._ws("set_done", payload);
       this._replaceInstance(instance); // instant feedback; the update event reloads the rest
       this._render();
     } catch (err) {
@@ -1262,6 +1294,18 @@ export class ChoresPanel extends Base {
     const inst = this._findInstance(id) ?? this._weekInstance(id, day);
     if (!inst || !kidTap(inst, this._state.today)) return;
     const done = inst.status !== "done";
+    const options = done ? this._earnOptions(inst) : [];
+    if (options.length > 1) {
+      // Pay or win back (D49): picking is the confirmation, also for a past day.
+      const title = t(this._lang, "earn_title", { name: inst.name });
+      const day = inst.day === this._state.today ? "" : ` · ${shortDay(inst.day, this._lang)}`;
+      const items = options.map((cid) => ({
+        label: this._earnLabel(inst, cid),
+        run: () => this._setDone(inst, true, cid),
+      }));
+      this._sheet = { title: title + day, items };
+      return;
+    }
     if (inst.day !== this._state.today) {
       // A past day: always confirm, and say which day (D8).
       const key = done ? "confirm_check_day" : "confirm_uncheck_day";
@@ -1281,6 +1325,20 @@ export class ChoresPanel extends Base {
     this._dialog = { text: t(this._lang, key, { name: inst.name }), onYes: () => this._setDone(inst, done) };
   }
 
+  /** What a done extra chore may earn for this kid this week (D49). Expected: none. */
+  _earnOptions(inst) {
+    if (inst.type !== "bonus") return [];
+    const balances =
+      this._view.name === "week" ? this._week?.balances : this._state.board?.[String(inst.kid_id)]?.balances;
+    return earnOptions(inst, this._state.currencies, balances);
+  }
+
+  _earnLabel(inst, currencyId) {
+    const c = this._state.currencies.find((x) => x.id === currencyId);
+    const amount = `${inst.values?.[String(currencyId)] ?? 0} ${c?.unit ?? ""}`;
+    return t(this._lang, c?.can_be_lost ? "earn_refill" : "earn_pay", { amount, name: c?.name ?? "" });
+  }
+
   _openTab(tab) {
     this._tab = tab;
     this._view = { name: "overview" };
@@ -1294,10 +1352,17 @@ export class ChoresPanel extends Base {
     const L = this._lang;
     const inst = this._findInstance(id) ?? this._weekInstance(id, day);
     if (!inst) return;
-    const items = parentActions(inst, this._state.today).map((status) => ({
-      label: t(L, `act_${status}`),
-      run: () => this._run(() => this._pws("parent/set_status", { instance_id: inst.id, status })),
-    }));
+    const setStatus = (status, extra = {}) =>
+      this._run(() => this._pws("parent/set_status", { instance_id: inst.id, status, ...extra }));
+    const options = this._earnOptions(inst);
+    const items = parentActions(inst, this._state.today).flatMap((status) =>
+      status === "done" && options.length > 1
+        ? options.map((cid) => ({
+            label: t(L, "act_done_for", { label: this._earnLabel(inst, cid) }),
+            run: () => setStatus(status, { currency_id: cid }),
+          }))
+        : [{ label: t(L, `act_${status}`), run: () => setStatus(status) }],
+    );
     items.push({ label: t(L, "adjust"), run: () => this._openAdjust(inst.kid_id) });
     this._sheet = { title: inst.name, items };
   }
@@ -1759,12 +1824,21 @@ export class ChoresPanel extends Base {
             aria-label="${t(L, "more_actions", { name: inst.name })}">${icon("mdi:dots-vertical")}</button>`
         : "";
     const box = inst.status === "pending" ? "" : cellSymbol(inst.status);
+    const earned = this._earnedTag(inst);
     return html`<div class="row">
       <button class="chore ${inst.status}" data-action="toggle" data-id="${inst.id}" role="checkbox"
         aria-checked="${inst.status === "done" ? "true" : "false"}" ${tappable ? "" : raw("disabled")}>
-        <span class="box" aria-hidden="true">${box}</span><span>${inst.name}</span>${late}
+        <span class="box" aria-hidden="true">${box}</span><span>${inst.name}</span>${earned}${late}
       </button>${more}
     </div>`;
+  }
+
+  /** "+10 min" on a done extra chore: the currency the kid picked (D49). */
+  _earnedTag(inst) {
+    if (inst.type !== "bonus" || inst.status !== "done" || inst.currency_id == null) return "";
+    const c = this._state.currencies.find((x) => x.id === inst.currency_id);
+    const value = inst.values?.[String(inst.currency_id)];
+    return c && value ? html`<span class="earned">+${value} ${c.unit}</span>` : "";
   }
 
   _meters(balances) {

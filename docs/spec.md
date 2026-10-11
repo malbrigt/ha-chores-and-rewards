@@ -1,6 +1,6 @@
 # Chores and Rewards for Home Assistant: Spec
 
-Draft 7, 10 Oct 2026. No open decisions. What it does, not how. Custom build (TaskMate, ChoreOps reviewed; neither fits).
+Draft 8, 11 Oct 2026. No open decisions. What it does, not how. Custom build (TaskMate, ChoreOps reviewed; neither fits).
 
 ## 1. Principles
 
@@ -43,6 +43,7 @@ Fields: name, icon, description; type (expected/bonus); assigned kids; weekdays;
 
 **Bonus**
 - Allowance-focused; earns up to the weekly maximum.
+- Earns **one** currency. A currency that can't be lost is payment. One that can be lost is offered only to **win back** what was lost this week, never more. If both are on offer, the kid picks ("1 €, or win back 10 min?"); otherwise the tap just ticks.
 - Muted section below expected chores. No highlighting or counters.
 - Always available; not locked behind expected chores.
 
@@ -89,7 +90,6 @@ Unlocks, with every action logged:
 
 ## 10. Later, not version 1
 
-- **Make-up:** winning back lost currency through bonus chores after a bad day.
 - Device control, automatic payments, rewards shop, carry-over or savings, photo proof, approval queue, phone notifications.
 
 Never: gamification.

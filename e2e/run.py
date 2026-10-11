@@ -119,6 +119,21 @@ def main() -> None:
         expect(a.locator("main")).to_contain_text("Make your bed")
         a.screenshot(path=ARTIFACTS / "6-admin.png")
 
+        # Pay or win back (D49): the parent rejects Ada's bed (−10 min), so the trash
+        # offers "win back 10 min" next to "1 €"; she picks screen time.
+        a.locator('[data-action="tab"][data-tab="today"]').click()
+        bed = kid(a, "Ada").locator(".row", has_text="Make your bed")
+        bed.locator('[data-action="more"]').click()
+        a.locator('[data-action="sheet-item"]', has_text="Reject").click()
+        expect(kid(a, "Ada")).to_contain_text("−10 lost")
+        kid(a, "Ada").locator(".chore", has_text="Take out the trash").click()
+        expect(a.locator('[data-action="sheet-item"]', has_text="1 € Allowance")).to_be_visible()
+        a.screenshot(path=ARTIFACTS / "8-earn-picker.png")
+        a.locator('[data-action="sheet-item"]', has_text="Win back 10 min").click()
+        trash = kid(a, "Ada").locator(".chore", has_text="Take out the trash")
+        expect(trash).to_contain_text("+10 min")
+        expect(kid(a, "Ada")).not_to_contain_text("−10 lost")
+
         # The panel follows the HA user's language: Norwegian (AC-8.5). The profile
         # setting wins over the browser's, so switch it the way HA's profile page does.
         a.evaluate(
@@ -132,7 +147,7 @@ def main() -> None:
             re.compile(r"(Mandag|Tirsdag|Onsdag|Torsdag|Fredag|Lørdag|Søndag)", re.IGNORECASE)
         )
         expect(kid(n, "Ada")).to_contain_text("Morgen", ignore_case=True)
-        n.screenshot(path=ARTIFACTS / "8-norwegian.png")
+        n.screenshot(path=ARTIFACTS / "9-norwegian.png")
         browser.close()
     print("E2E passed. Screenshots:", ARTIFACTS)
 

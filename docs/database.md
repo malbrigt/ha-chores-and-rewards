@@ -15,6 +15,7 @@ erDiagram
     chores ||--o{ instances : "snapshot of"
     instances ||--o{ instance_values : "pays (snapshot)"
     currencies ||--o{ instance_values : ""
+    currencies |o--o{ instances : "extra earns (D49)"
     weeks ||--o{ adjustments : ""
     kids ||--o{ adjustments : ""
     weeks ||--o{ payouts : ""
@@ -30,14 +31,14 @@ erDiagram
 | `kid_currency_max` | An optional weekly max per kid and currency (used by the fixed cap, D4). |
 | `chore_kids`, `chore_values` | Which kids a chore is for, and what it pays in each currency. `chores.weekdays` is a bitmask (bit 0 = Monday). |
 | `weeks` | One row per week, keyed by its Monday. Status is `open` or `closed`. |
-| `instances` | One row per **kid × chore × day**: the thing a kid ticks. Name, type, slot and `instance_values` are a **snapshot** of the chore when the row was created, so later edits never rewrite history (D6). Status is `pending`, `done`, `missed`, `excused` or `rejected`. Ids are never reused (AUTOINCREMENT). |
+| `instances` | One row per **kid × chore × day**: the thing a kid ticks. Name, type, slot and `instance_values` are a **snapshot** of the chore when the row was created, so later edits never rewrite history (D6). Status is `pending`, `done`, `missed`, `excused` or `rejected`. A done extra chore stores the one currency it earns in `currency_id` (NULL = all values; only set when done, D49). Ids are never reused (AUTOINCREMENT). |
 | `adjustments` | Parent corrections (±) to a balance, with a required note. |
 | `payouts` | The "paid / entered" tick per week, kid and currency. It stores the amount at that moment (D11). |
 | `audit_log` | Append-only history of every change, with kid, day and a late flag. The full state can be replayed from it (D46). |
 | `settings`, `meta` | Panel settings (JSON values), and the rollover marker `last_finalized`. |
 
 ## Derived, never stored
-- **Balances** are computed from instances, adjustments and caps (`views.week_balances`). The order is: earned is capped, then losses are subtracted, then adjustments added, and the total is clamped to `0..cap` (D5).
+- **Balances** are computed from instances, adjustments and caps (`views.week_balances`). The order is: earned is capped, then losses are subtracted, extra chores that won back a loss are added (at most the loss), then adjustments, and the total is clamped to `0..cap` (D5, D49).
 - **Late ticks:** a done row whose `status_at` falls on a later local day than the row's own day.
 
 ## Rules kept by the schema
