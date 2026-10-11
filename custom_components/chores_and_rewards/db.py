@@ -39,10 +39,17 @@ _LOGGER = logging.getLogger(__name__)
 # --- Schema -------------------------------------------------------------------
 # Conventions (D45): STRICT tables; booleans INTEGER CHECK IN (0,1); dates TEXT
 # 'YYYY-MM-DD' checked with date(); timestamps TEXT ISO-8601 UTC checked with datetime();
-# amounts INTEGER; every FK child column indexed; soft delete via deleted_at with partial
+# amounts INTEGER in the currency's minor unit (cents when decimals = 2, D50); every FK
+# child column indexed; soft delete via deleted_at with partial
 # unique indexes on names. Schema version lives in PRAGMA user_version.
 
-_SCHEMA = """
+# Stamped into every file this integration creates (PRAGMA application_id). A file with
+# tables but another id predates the current schema and is set aside, not migrated (D45).
+APP_ID = 0x43485231  # "CHR1"
+
+_SCHEMA = f"""
+PRAGMA application_id = {APP_ID};
+
 CREATE TABLE meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -71,6 +78,9 @@ CREATE TABLE currencies (
     can_be_lost INTEGER NOT NULL CHECK (can_be_lost IN (0, 1)),
     cap_mode TEXT NOT NULL CHECK (cap_mode IN ('fixed', 'pot')),
     default_max INTEGER CHECK (default_max IS NULL OR default_max >= 0),
+    -- Places after the decimal point; every amount in this currency is stored in that
+    -- minor unit (2: 0.50 € is 50). Fixed once the currency exists (D50).
+    decimals INTEGER NOT NULL DEFAULT 0 CHECK (decimals BETWEEN 0 AND 2),
     active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
     sort INTEGER NOT NULL DEFAULT 0,
     deleted_at TEXT CHECK (deleted_at IS NULL OR datetime(deleted_at) IS NOT NULL)
@@ -145,12 +155,16 @@ CREATE TABLE instances (
         CHECK (status IN ('pending', 'done', 'missed', 'excused', 'rejected')),
     status_at TEXT CHECK (status_at IS NULL OR datetime(status_at) IS NOT NULL),
     status_by TEXT,
+    -- A done extra chore earns this one currency; NULL = all its values (D49).
+    currency_id INTEGER REFERENCES currencies (id)
+        CHECK (currency_id IS NULL OR status = 'done'),
     UNIQUE (kid_id, chore_id, day),
     CHECK (status = 'pending' OR status_at IS NOT NULL)
 ) STRICT;
 CREATE INDEX instances_week_kid ON instances (week, kid_id);
 CREATE INDEX instances_day ON instances (day);
 CREATE INDEX instances_chore ON instances (chore_id);
+CREATE INDEX instances_currency ON instances (currency_id);
 
 CREATE TABLE instance_values (
     instance_id INTEGER NOT NULL REFERENCES instances (id) ON DELETE CASCADE,
@@ -220,20 +234,14 @@ SELECT strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'), 'system', 'currency_save', 'c
        json_object('id', id, 'name', name, 'unit', unit, 'icon', icon,
                    'payout_weekday', payout_weekday,
                    'can_be_lost', json(iif(can_be_lost, 'true', 'false')),
-                   'cap_mode', cap_mode, 'default_max', default_max,
+                   'cap_mode', cap_mode, 'default_max', default_max, 'decimals', decimals,
                    'active', json(iif(active, 'true', 'false')), 'sort', sort)
 FROM currencies;
 """
 
-# v2 (D49): a done extra chore earns the one currency the kid picked. NULL = all values.
-_V2_EARN_CURRENCY = """
-ALTER TABLE instances ADD COLUMN currency_id INTEGER REFERENCES currencies (id)
-    CHECK (currency_id IS NULL OR status = 'done');
-CREATE INDEX instances_currency ON instances (currency_id);
-"""
-
 # Index i holds the script that upgrades schema version i to i + 1 (PRAGMA user_version).
-MIGRATIONS: list[str] = [_SCHEMA, _V2_EARN_CURRENCY]
+# One clean schema; add scripts here for future changes.
+MIGRATIONS: list[str] = [_SCHEMA]
 SCHEMA_VERSION = len(MIGRATIONS)
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -322,18 +330,16 @@ class Database:
             return SCHEMA_VERSION
 
     def _reset_legacy(self) -> None:
-        """Pre-0.2 files (schema version kept in a meta table) are set aside, not migrated.
+        """Files from before the current schema (no APP_ID stamp) are set aside, not migrated.
 
-        There was no production data before 0.2 (D45). The old file is kept as a backup.
+        There was no production data before them (D45). The old file is kept as a backup.
         """
         if not self.path.exists():
             return
         with closing(sqlite3.connect(self.path)) as conn:
             legacy = (
-                conn.execute("PRAGMA user_version").fetchone()[0] == 0
-                and conn.execute(
-                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'"
-                ).fetchone()
+                conn.execute("PRAGMA application_id").fetchone()[0] != APP_ID
+                and conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table'").fetchone()
             )
         if not legacy:
             return
@@ -342,7 +348,7 @@ class Database:
         self.backup(target)
         for suffix in ("", "-wal", "-shm"):
             self.path.with_name(self.path.name + suffix).unlink(missing_ok=True)
-        _LOGGER.warning("Old pre-0.2 database moved to %s; starting with a fresh one", target)
+        _LOGGER.warning("Old database moved to %s; starting with a fresh one", target)
 
     def backup(self, target: Path) -> None:
         """Consistent copy of the live database (safe with WAL)."""
@@ -466,6 +472,7 @@ class Repo:
             "can_be_lost": c.can_be_lost,
             "cap_mode": CapMode(c.cap_mode).value,
             "default_max": c.default_max,
+            "decimals": c.decimals,
             "active": c.active,
             "sort": c.sort,
         }
@@ -877,6 +884,7 @@ def _currency(r: sqlite3.Row) -> Currency:
         can_be_lost=bool(r["can_be_lost"]),
         cap_mode=CapMode(r["cap_mode"]),
         default_max=r["default_max"],
+        decimals=r["decimals"],
         icon=r["icon"],
         active=bool(r["active"]),
         sort=r["sort"],

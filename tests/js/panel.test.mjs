@@ -59,9 +59,13 @@ test("progress: percentage of cap, null when uncapped (AC-8.2)", () => {
   assert.equal(progress(undefined).total, 0);
 });
 
-test("amountLabel", () => {
-  assert.equal(amountLabel({ total: 40, cap: 60 }, "min"), "40/60 min");
-  assert.equal(amountLabel({ total: 40, cap: null }, "kr"), "40 kr");
+test("amountLabel (AC-3.4: decimals per currency)", () => {
+  const min = { unit: "min", decimals: 0 };
+  const eur = { unit: "€", decimals: 2 };
+  assert.equal(amountLabel({ total: 40, cap: 60 }, min, "en"), "40/60 min");
+  assert.equal(amountLabel({ total: 40, cap: null }, { unit: "kr" }, "nb"), "40 kr");
+  assert.equal(amountLabel({ total: 450, cap: 700 }, eur, "nb"), "4,50/7 €");
+  assert.equal(amountLabel({ total: 450, cap: 700 }, eur, "en"), "4.50/7 €");
 });
 
 test("isoWeek incl. year boundaries", () => {
@@ -211,4 +215,24 @@ test("earnOptions matches the shared fixture used by the Python tests (AC-6.6, D
     );
     assert.deepEqual(earnOptions({ values: c.values }, fixture.currencies, balances), c.options, JSON.stringify(c));
   }
+});
+
+test("formatAmount and parseAmount: minor units in and out (AC-3.4, D50)", async () => {
+  const { formatAmount, parseAmount } = await import("../../custom_components/chores_and_rewards/frontend/panel.js");
+  const eur = { unit: "€", decimals: 2 };
+  assert.equal(formatAmount(50, eur, "nb"), "0,50 €");
+  assert.equal(formatAmount(50, eur, "en"), "0.50 €");
+  assert.equal(formatAmount(200, eur, "en"), "2 €"); // whole amounts without decimals
+  assert.equal(formatAmount(-125, eur, "en"), "-1.25 €");
+  assert.equal(formatAmount(10, { unit: "min", decimals: 0 }, "nb"), "10 min");
+  assert.equal(formatAmount(1500, { unit: "kr" }, "nb"), "1500 kr");
+  assert.equal(parseAmount("0,5", 2), 50);
+  assert.equal(parseAmount("1.25", 2), 125);
+  assert.equal(parseAmount("-2", 2), -200);
+  assert.equal(parseAmount(".5", 1), 5);
+  assert.equal(parseAmount("10", 0), 10);
+  assert.equal(parseAmount("0.29", 2), 29); // no float drift (0.29 * 100 = 28.999…)
+  assert.equal(parseAmount("", 2), null);
+  assert.equal(parseAmount("abc", 2), null);
+  assert.equal(parseAmount("1,2,3", 2), null);
 });

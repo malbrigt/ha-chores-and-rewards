@@ -258,3 +258,26 @@ async def test_duplicate_active_name_is_reported(ws):
     assert await err(ws, "admin/kid/save", token=token, name="ada") == "duplicate_name"
     await ok(ws, "admin/kid/delete", token=token, kid_id=ada)
     assert (await ok(ws, "admin/kid/save", token=token, name="Ada"))["id"] != ada
+
+
+async def test_currency_decimals_store_minor_units_and_are_locked(ws):
+    """AC-3.4, D50: amounts are integers in the minor unit; decimals can't change later."""
+    token = await unlock(ws)
+    euro = dict(name="Euro", unit="€", payout_weekday=5, can_be_lost=False, cap_mode="pot")
+    cid = (await ok(ws, "admin/currency/save", token=token, **euro, decimals=2))["id"]
+    listed = (await ok(ws, "admin/list", token=token))["currencies"]
+    assert next(c for c in listed if c["id"] == cid)["decimals"] == 2
+
+    ada = (await ok(ws, "admin/kid/save", token=token, name="Ada"))["id"]
+    await ok(ws, "admin/chore/save", token=token, **chore([ada], values={str(cid): 50}))
+    kid = (await ok(ws, "get_state"))["board"][str(ada)]
+    await ok(ws, "set_done", instance_id=kid["chores"][0]["id"], done=True)
+    bal = (await ok(ws, "get_state"))["board"][str(ada)]["balances"][str(cid)]
+    assert (bal["total"], bal["cap"]) == (50, 250)  # 0.50 € today, 5 × 0.50 € on offer
+
+    locked = {**euro, "currency_id": cid, "decimals": 0}
+    assert await err(ws, "admin/currency/save", token=token, **locked) == "decimals_locked"
+    await ok(ws, "admin/currency/save", token=token, **{**locked, "decimals": 2, "unit": "EUR"})
+    assert await err(ws, "admin/currency/save", token=token, **euro, decimals=3) == (
+        "invalid_format"
+    )

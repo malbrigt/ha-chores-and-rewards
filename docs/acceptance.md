@@ -6,6 +6,7 @@ IDs follow the spec sections. Tests reference these IDs.
 - AC-3.1 WHEN a new week starts THEN each kid's balance is 0 in every currency.
 - AC-3.2 WHEN an expected chore is missed AND its currency can be lost THEN the balance drops by the chore's value, never below 0.
 - AC-3.3 WHEN an expected chore is missed AND its currency cannot be lost THEN the balance is unchanged.
+- AC-3.4 WHEN a currency has decimals (0–2, fixed once created) THEN its amounts are shown and entered in the user's locale (0,50 € / 0.50 €) and stored exactly, without floats (D50).
 - AC-3.4 WHEN a currency is inactive THEN it is hidden and earns nothing.
 
 ## §4 / D4 Caps

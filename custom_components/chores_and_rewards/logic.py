@@ -103,6 +103,7 @@ class Currency:
     icon: str = ""
     active: bool = True
     sort: int = 0
+    decimals: int = 0  # amounts are integers in this minor unit: 2 → cents (D50)
 
 
 @dataclass(frozen=True)
@@ -304,6 +305,11 @@ def week_pot(
                 if is_scheduled(chore, kid_id, day)
             )
     return total
+
+
+def major_units(amount: int, decimals: int) -> int | float:
+    """A stored minor-unit amount as a plain number for display: 150, 2 → 1.5 (D50)."""
+    return amount / 10**decimals if decimals else amount
 
 
 def resolve_cap(currency: Currency, kid_max: int | None, pot: int) -> int | None:

@@ -17,7 +17,9 @@ async def test_every_change_is_replayable_from_the_audit_log(hass, ws, freezer):
     ada = (await ok(ws, "admin/kid/save", token=token, name="Ada", max={"1": 120}))["id"]
     bo = (await ok(ws, "admin/kid/save", token=token, name="Bo"))["id"]
     cato = (await ok(ws, "admin/kid/save", token=token, name="Cato"))["id"]
-    cur = dict(name="Stjerner", unit="★", payout_weekday=6, can_be_lost=False, cap_mode="fixed")
+    cur = dict(
+        name="Stjerner", unit="★", payout_weekday=6, can_be_lost=False, cap_mode="fixed", decimals=1
+    )
     stars = (await ok(ws, "admin/currency/save", token=token, **cur, default_max=10))["id"]
     await ok(ws, "admin/currency/save", token=token, currency_id=stars, **cur, sort=3)
     dishes = (await ok(ws, "admin/chore/save", token=token, **chore([ada, bo])))["id"]

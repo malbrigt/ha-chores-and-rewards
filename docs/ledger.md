@@ -530,3 +530,11 @@ Manifest version 0.2.0. Since v0.1.0: kids fix past days, a replayable audit log
 - Week grid rows now carry values, so a past-day extra can be picked from the week view. The parent ⋯ menu offers "Mark done: …" per option.
 - Smoke tests now start each test with a fresh panel (happy-dom kept focus on a detached node).
 - **Noticed, not fixed:** `device_registry.async_get_device` is deprecated (stops working in HA 2027.8); `sensor.py` should use `async_get_device_by_identifier`.
+
+---
+
+## Step 16: decimal amounts, database recreated (user request)
+- **Decimals (D50):** each currency has `decimals` (0–2). Amounts stay integers in the minor unit (cents), so no rule changed and nothing is a float. Only the panel (locale-aware `formatAmount`/`parseAmount`) and the sensors (`native_value` in whole units, display precision) convert. `decimals` is locked after create.
+- **Recreate, not migrate (user's call):** one clean schema with `currencies.decimals` and `instances.currency_id` built in; the v2 migration is gone. Files are stamped with `PRAGMA application_id`, and any unstamped file (pre-0.2 or the v0.1/v0.2 releases) is backed up and recreated.
+- **Releases v0.1.0 and v0.2.0 deleted** (nobody used them). The manifest is back to 0.1.0; no release until the user says go.
+- **Seed:** allowance is € with cents (≈7 € for a good week). The default whole-kroner "Ukepenger" is deleted and replaced, because decimals can't change.

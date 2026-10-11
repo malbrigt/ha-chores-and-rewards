@@ -127,7 +127,7 @@ def main() -> None:
         a.locator('[data-action="sheet-item"]', has_text="Reject").click()
         expect(kid(a, "Ada")).to_contain_text("−10 lost")
         kid(a, "Ada").locator(".chore", has_text="Take out the trash").click()
-        expect(a.locator('[data-action="sheet-item"]', has_text="1 € Allowance")).to_be_visible()
+        expect(a.locator('[data-action="sheet-item"]', has_text="0.30 € Allowance")).to_be_visible()
         a.screenshot(path=ARTIFACTS / "8-earn-picker.png")
         a.locator('[data-action="sheet-item"]', has_text="Win back 10 min").click()
         trash = kid(a, "Ada").locator(".chore", has_text="Take out the trash")

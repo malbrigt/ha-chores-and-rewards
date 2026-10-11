@@ -95,3 +95,21 @@ async def test_one_device_per_kid_follows_rename_and_delete(hass, ws, freezer):
     await settle(hass, freezer)
     assert devices.async_get(entry.device_id) is None
     assert entities.async_get("sensor.ada_skjermtid") is None
+
+
+async def test_sensor_shows_decimals(hass, ws, freezer):
+    """AC-3.4, D50: a currency with decimals reports whole units (150 cents → 1.5 €)."""
+    token = await unlock(ws)
+    euro = dict(name="Euro", unit="€", payout_weekday=5, can_be_lost=False, cap_mode="pot")
+    cid = (await ok(ws, "admin/currency/save", token=token, **euro, decimals=2))["id"]
+    ada = (await ok(ws, "admin/kid/save", token=token, name="Ada"))["id"]
+    await ok(ws, "admin/chore/save", token=token, **chore([ada], values={str(cid): 150, "1": 30}))
+    inst = (await ok(ws, "get_state"))["board"][str(ada)]["chores"][0]
+    await ok(ws, "set_done", instance_id=inst["id"], done=True)
+    await settle(hass, freezer)
+    state = hass.states.get("sensor.ada_euro")
+    assert state.state == "1.5" and state.attributes["unit_of_measurement"] == "€"
+    assert state.attributes["cap"] == 7.5  # 5 weekdays × 1.50 €
+    entry = er.async_get(hass).async_get("sensor.ada_euro")
+    assert entry.options["sensor"]["suggested_display_precision"] == 2
+    assert hass.states.get("sensor.ada_skjermtid").state == "30"  # whole minutes unchanged

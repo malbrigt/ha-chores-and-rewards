@@ -373,6 +373,8 @@ async def ws_kid_delete(
         vol.Required("can_be_lost"): bool,
         vol.Required("cap_mode"): vol.In([m.value for m in CapMode]),
         vol.Optional("default_max", default=None): vol.Any(None, _NON_NEG),
+        # Minor unit of every amount in this currency; fixed after create (D50).
+        vol.Optional("decimals", default=0): vol.In([0, 1, 2]),
         vol.Optional("active", default=True): bool,
         vol.Optional("sort", default=0): int,
     }
@@ -389,6 +391,7 @@ async def ws_currency_save(
         can_be_lost=msg["can_be_lost"],
         cap_mode=CapMode(msg["cap_mode"]),
         default_max=msg["default_max"],
+        decimals=msg["decimals"],
         active=msg["active"],
         sort=msg["sort"],
     )

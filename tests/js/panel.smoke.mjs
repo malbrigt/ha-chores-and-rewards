@@ -308,3 +308,28 @@ test("extra chore: lost screen time → pick pay or win back; nothing lost → p
   assert.equal(second.root.querySelector('[data-action="sheet-item"]'), null);
   assert.deepEqual(second.hass.calls.at(-1), { type: "chores_and_rewards/set_done", instance_id: 3, done: true });
 });
+
+test("a currency with decimals shows 0,50 and the adjust form sends cents (AC-3.4, D50)", async () => {
+  const euro = { ...STATE.currencies[0], id: 2, name: "Euro", unit: "€", can_be_lost: false, decimals: 2, sort: 1 };
+  const state = structuredClone(STATE);
+  state.currencies.push(euro);
+  state.board[1].balances[2] = { earned: 50, lost: 0, refilled: 0, adjustments: 0, cap: 700, total: 50 };
+  const { root, hass } = await mount(state);
+  assert.ok(root.textContent.includes("0,50/7 €"), "meter in euros");
+
+  click(root, '[data-action="lock-toggle"]');
+  for (const d of "1234") click(root, `[data-action="pin-digit"][data-digit="${d}"]`);
+  click(root, '[data-action="pin-ok"]');
+  await tick();
+  click(root, '[data-action="adjust"][data-kid="1"]');
+  await tick();
+  const form = root.querySelector("form.form");
+  form.querySelector('[name="currency_id"]').value = "2";
+  form.querySelector('[name="amount"]').value = "1,25";
+  form.querySelector('[name="note"]').value = "Bonus";
+  click(root, '[data-action="form-save"]');
+  await tick();
+  const adjust = hass.calls.find((c) => c.type.endsWith("parent/adjust"));
+  assert.equal(adjust.currency_id, 2);
+  assert.equal(adjust.amount, 125);
+});

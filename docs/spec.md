@@ -1,6 +1,6 @@
 # Chores and Rewards for Home Assistant: Spec
 
-Draft 8, 11 Oct 2026. No open decisions. What it does, not how. Custom build (TaskMate, ChoreOps reviewed; neither fits).
+Draft 9, 11 Oct 2026. No open decisions. What it does, not how. Custom build (TaskMate, ChoreOps reviewed; neither fits).
 
 ## 1. Principles
 
@@ -18,7 +18,7 @@ Draft 8, 11 Oct 2026. No open decisions. What it does, not how. Custom build (Ta
 
 ## 3. Currencies
 
-Configurable set. Each has: name, unit, icon, active, **payout day**, **can be lost** (yes/no).
+Configurable set. Each has: name, unit, icon, active, **payout day**, **can be lost** (yes/no), and **decimals** (0–2, e.g. whole minutes, or cents for €/$; chosen once when the currency is created).
 
 - Always earned, starting at 0 each week.
 - Can be lost = yes: a missed expected chore deducts its own value. Balance never goes below 0.

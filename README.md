@@ -8,7 +8,7 @@ A weekly chores board for a kitchen touchscreen, running entirely inside Home As
 
 ## Key concepts
 - **Kids:** as many as you like. Each gets a column on the overview, a week view, and one HA device with balance sensors.
-- **Currencies:** you define what chores earn, for example *screen time* (minutes) or *weekly allowance* (kr). Each currency has:
+- **Currencies:** you define what chores earn, for example *screen time* (whole minutes) or *weekly allowance* (€ with cents). Each currency has:
   - a payout day;
   - whether missed chores can **cost** it;
   - a weekly cap, either a **fixed max** (screen time never goes above it) or the **sum of the week's chores** (allowance is whatever was on offer).

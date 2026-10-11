@@ -171,7 +171,11 @@ def delete_kid(repo: Repo, ctx: Ctx, kid_id: int) -> None:
 
 
 def save_currency(repo: Repo, ctx: Ctx, currency: Currency) -> int:
-    before = currency_json(require(repo.get_currency(currency.id))) if currency.id else None
+    """Create (id 0) or update a currency. Its decimals are fixed once it exists (D50)."""
+    old = require(repo.get_currency(currency.id)) if currency.id else None
+    if old is not None and old.decimals != currency.decimals:
+        raise RuleError("decimals_locked")  # would reinterpret every stored amount
+    before = currency_json(old) if old else None
     currency_id = repo.save_currency(currency)
     repo.audit(
         AuditAction.CURRENCY_SAVE,

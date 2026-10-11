@@ -9,6 +9,7 @@ The panel talks to the integration over HA's WebSocket connection (`hass.connect
 - Errors are `{success: false, error: {code, message}}`. The panel translates `code`.
 - IDs are integers. Request fields never use `id` or `type`, because those are the WebSocket message id and command. Use `kid_id`, `chore_id`, `chore_type`, and so on. Dates are ISO `YYYY-MM-DD`. Weekdays run 0 = Monday … 6 = Sunday.
 - Maps keyed by currency id (`values`, `max`) use string keys in JSON, e.g. `{"1": 30}`.
+- **Amounts are integers in the currency's minor unit** (`decimals`, D50): with `decimals: 2`, `50` means 0.50. This covers values, max, balances, adjustments and payouts.
 
 ## Error codes
 
@@ -42,7 +43,7 @@ The panel talks to the integration over HA's WebSocket connection (`hass.connect
 | `admin/list` | (nothing) | `{kids, currencies, chores, settings}`, including inactive items |
 | `admin/kid/save` | `kid_id?`, `name`, `sort?`, `active?`, `max?: {cid: int\|null}` | `{id}` |
 | `admin/kid/delete` | `kid_id` | `{}` |
-| `admin/currency/save` | `currency_id?`, `name`, `unit`, `icon?`, `payout_weekday`, `can_be_lost`, `cap_mode` (`fixed`\|`pot`), `default_max?`, `active?`, `sort?` | `{id}` |
+| `admin/currency/save` | `currency_id?`, `name`, `unit`, `icon?`, `payout_weekday`, `can_be_lost`, `cap_mode` (`fixed`\|`pot`), `default_max?`, `decimals?` (0–2, default 0; fixed after create, else `decimals_locked`), `active?`, `sort?` | `{id}` |
 | `admin/currency/delete` | `currency_id` | `{}` |
 | `admin/chore/save` | `chore_id?`, `name`, `icon?`, `description?`, `chore_type` (`expected`\|`bonus`), `slot`, `weekdays: [int]`, `kid_ids: [int]`, `values: {cid: int}`, `active?`, `sort?` | `{id, warnings: [cid]}` |
 | `admin/chore/delete` | `chore_id` | `{}` |

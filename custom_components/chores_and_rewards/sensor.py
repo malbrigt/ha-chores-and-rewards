@@ -25,7 +25,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpda
 from . import ChoresConfigEntry
 from .const import DOMAIN, NAME, SIGNAL_UPDATED
 from .db import Repo
-from .logic import Balance, Currency, Kid, week_start
+from .logic import Balance, Currency, Kid, major_units, week_start
 from .store import ChoresStore
 from .views import week_balances
 
@@ -161,9 +161,15 @@ class BalanceSensor(CoordinatorEntity[BalanceCoordinator], SensorEntity):
         return row.currency.name if row else None
 
     @property
-    def native_value(self) -> int | None:
+    def native_value(self) -> int | float | None:
+        """The balance in whole units, e.g. 1.5 € for 150 cents (D50)."""
         row = self._row
-        return row.balance.total if row else None
+        return major_units(row.balance.total, row.currency.decimals) if row else None
+
+    @property
+    def suggested_display_precision(self) -> int | None:
+        row = self._row
+        return row.currency.decimals if row else None
 
     @property
     def native_unit_of_measurement(self) -> str | None:
@@ -182,11 +188,16 @@ class BalanceSensor(CoordinatorEntity[BalanceCoordinator], SensorEntity):
         if row is None:
             return None
         b = row.balance
+
+        def amount(n: int | None) -> int | float | None:
+            return None if n is None else major_units(n, row.currency.decimals)
+
         return {
             "kid": row.kid.name,
-            "earned": b.earned,
-            "lost": b.lost,
-            "adjustments": b.adjustments,
-            "cap": b.cap,
+            "earned": amount(b.earned),
+            "lost": amount(b.lost),
+            "refilled": amount(b.refilled),
+            "adjustments": amount(b.adjustments),
+            "cap": amount(b.cap),
             "week": row.week,
         }

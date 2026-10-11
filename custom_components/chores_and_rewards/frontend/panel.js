@@ -24,6 +24,8 @@ export const STRINGS = {
     earn_refill: "Vinn tilbake {amount} {name}",
     act_done_for: "Merk som gjort: {label}",
     error_nothing_lost: "Ingenting å vinne tilbake.",
+    error_decimals_locked: "Desimaler kan ikke endres etter at valutaen er laget.",
+    f_decimals: "Desimaler (kan ikke endres senere)",
     back: "Tilbake",
     more_actions: "Flere valg for {name}",
     adjust_for: "Juster saldo for {name}",
@@ -186,6 +188,8 @@ export const STRINGS = {
     earn_refill: "Win back {amount} {name}",
     act_done_for: "Mark done: {label}",
     error_nothing_lost: "Nothing to win back.",
+    error_decimals_locked: "Decimals can't be changed once the currency exists.",
+    f_decimals: "Decimals (can't be changed later)",
     back: "Back",
     more_actions: "More options for {name}",
     adjust_for: "Adjust balance for {name}",
@@ -543,9 +547,35 @@ export function weekdayName(index, lang) {
   return new Intl.DateTimeFormat(LOCALE[lang], { weekday: "long", timeZone: "UTC" }).format(monday);
 }
 
-/** Value with unit, e.g. "40/60 min" or "40 kr" when uncapped. */
-export function amountLabel({ total, cap }, unit) {
-  return cap ? `${total}/${cap} ${unit}` : `${total} ${unit}`;
+// Amounts arrive as integers in the currency's minor unit: with decimals = 2, 50 is
+// 0.50 € (D50). These helpers are the only place that converts.
+
+/** A minor-unit amount as a number in the user's locale: 50 → "0,50" (nb), 200 → "2". */
+export function formatNumber(minor, decimals, lang) {
+  const scale = 10 ** decimals;
+  return new Intl.NumberFormat(LOCALE[lang] ?? LOCALE.en, {
+    minimumFractionDigits: minor % scale === 0 ? 0 : decimals,
+    maximumFractionDigits: decimals,
+    useGrouping: false,
+  }).format(minor / scale);
+}
+
+/** A minor-unit amount with its unit: "0,50 €", "10 min". */
+export function formatAmount(minor, currency, lang) {
+  return `${formatNumber(minor, currency?.decimals ?? 0, lang)} ${currency?.unit ?? ""}`.trim();
+}
+
+/** Typed text to a minor-unit integer: "0,5" or "0.5" → 50 (decimals 2); "" or junk → null. */
+export function parseAmount(text, decimals) {
+  const s = String(text ?? "").trim().replace(",", ".");
+  if (!/^-?(\d+\.?\d*|\.\d+)$/.test(s)) return null;
+  return Math.round(Number(s) * 10 ** decimals);
+}
+
+/** Balance with unit, e.g. "40/60 min", "4,50/7 €", or "40 kr" when uncapped. */
+export function amountLabel({ total, cap }, currency, lang) {
+  const n = (v) => formatNumber(v, currency?.decimals ?? 0, lang);
+  return `${cap ? `${n(total)}/${n(cap)}` : n(total)} ${currency?.unit ?? ""}`.trim();
 }
 
 /** Local "9.10. 14:05" style timestamp for the log. */
@@ -1325,6 +1355,11 @@ export class ChoresPanel extends Base {
     this._dialog = { text: t(this._lang, key, { name: inst.name }), onYes: () => this._setDone(inst, done) };
   }
 
+  /** A currency by id, including inactive ones when the admin list is loaded. */
+  _currency(id) {
+    return (this._admin?.currencies ?? []).find((c) => c.id === id) ?? this._state?.currencies.find((c) => c.id === id);
+  }
+
   /** What a done extra chore may earn for this kid this week (D49). Expected: none. */
   _earnOptions(inst) {
     if (inst.type !== "bonus") return [];
@@ -1335,7 +1370,7 @@ export class ChoresPanel extends Base {
 
   _earnLabel(inst, currencyId) {
     const c = this._state.currencies.find((x) => x.id === currencyId);
-    const amount = `${inst.values?.[String(currencyId)] ?? 0} ${c?.unit ?? ""}`;
+    const amount = formatAmount(inst.values?.[String(currencyId)] ?? 0, c, this._lang);
     return t(this._lang, c?.can_be_lost ? "earn_refill" : "earn_pay", { amount, name: c?.name ?? "" });
   }
 
@@ -1433,9 +1468,17 @@ export class ChoresPanel extends Base {
         values[f.key] = [...root.querySelectorAll(`[name="${f.key}"]:checked`)].map((i) => Number(i.value));
       } else if (f.type === "number") {
         values[f.key] = parseOptionalInt(root.querySelector(`[name="${f.key}"]`).value);
+      } else if (f.type === "amount") {
+        // Fields are read in order, so a currency select above can set the decimals (D50).
+        const text = root.querySelector(`[name="${f.key}"]`).value;
+        values[f.key] = parseAmount(text, this._fieldDecimals(f, values));
       } else values[f.key] = root.querySelector(`[name="${f.key}"]`).value;
     }
     return values;
+  }
+
+  _fieldDecimals(field, values) {
+    return (typeof field.decimals === "function" ? field.decimals(values) : field.decimals) ?? 0;
   }
 
   async _saveForm() {
@@ -1473,7 +1516,12 @@ export class ChoresPanel extends Base {
           label: t(L, "currency"),
           options: this._state.currencies.map((c) => [c.id, c.name]),
         },
-        { key: "amount", type: "number", label: t(L, "amount") },
+        {
+          key: "amount",
+          type: "amount",
+          label: t(L, "amount"),
+          decimals: (v) => this._currency(Number(v.currency_id ?? this._state.currencies[0]?.id))?.decimals,
+        },
         { key: "note", type: "text", label: t(L, "note") },
       ],
       values: {},
@@ -1498,7 +1546,8 @@ export class ChoresPanel extends Base {
         { key: "name", type: "text", label: t(L, "f_name") },
         ...currencies.map((c) => ({
           key: `max_${c.id}`,
-          type: "number",
+          type: "amount",
+          decimals: c.decimals,
           label: t(L, "f_max", { name: `${c.name} (${c.unit})` }),
         })),
         { key: "sort", type: "number", label: t(L, "f_sort") },
@@ -1560,7 +1609,8 @@ export class ChoresPanel extends Base {
         },
         ...currencies.map((c) => ({
           key: `value_${c.id}`,
-          type: "number",
+          type: "amount",
+          decimals: c.decimals,
           label: t(L, "f_value", { name: `${c.name} (${c.unit})` }),
         })),
         { key: "icon", type: "text", label: t(L, "f_icon") },
@@ -1602,16 +1652,22 @@ export class ChoresPanel extends Base {
       payout_weekday: 4,
       can_be_lost: false,
       cap_mode: "fixed",
+      decimals: 0,
       active: true,
       sort: 0,
       icon: "",
     };
+    // Decimals are chosen once, on create: they define how every amount is stored (D50).
+    const decimalsField = currencyId
+      ? []
+      : [{ key: "decimals", type: "select", label: t(L, "f_decimals"), options: [0, 1, 2].map((d) => [d, formatNumber(1, d, L)]) }]; // 1, 0.1, 0.01
     this._openForm({
       title: currencyId ? cur.name : `${t(L, "new")}: ${t(L, "currencies")}`,
       name: cur.name,
       fields: [
         { key: "name", type: "text", label: t(L, "f_name") },
         { key: "unit", type: "text", label: t(L, "f_unit") },
+        ...decimalsField,
         { key: "icon", type: "text", label: t(L, "f_icon") },
         {
           key: "payout_weekday",
@@ -1629,7 +1685,12 @@ export class ChoresPanel extends Base {
             ["pot", t(L, "cap_pot")],
           ],
         },
-        { key: "default_max", type: "number", label: t(L, "f_default_max") },
+        {
+          key: "default_max",
+          type: "amount",
+          label: t(L, "f_default_max"),
+          decimals: (v) => (currencyId ? cur.decimals : Number(v.decimals ?? 0)),
+        },
         { key: "sort", type: "number", label: t(L, "f_sort") },
         { key: "active", type: "bool", label: t(L, "f_active") },
       ],
@@ -1644,6 +1705,7 @@ export class ChoresPanel extends Base {
           can_be_lost: v.can_be_lost,
           cap_mode: v.cap_mode,
           default_max: v.default_max,
+          decimals: currencyId ? cur.decimals : Number(v.decimals),
           sort: v.sort ?? 0,
           active: v.active,
         }),
@@ -1838,13 +1900,16 @@ export class ChoresPanel extends Base {
     if (inst.type !== "bonus" || inst.status !== "done" || inst.currency_id == null) return "";
     const c = this._state.currencies.find((x) => x.id === inst.currency_id);
     const value = inst.values?.[String(inst.currency_id)];
-    return c && value ? html`<span class="earned">+${value} ${c.unit}</span>` : "";
+    return c && value ? html`<span class="earned">+${formatAmount(value, c, this._lang)}</span>` : "";
   }
 
   _meters(balances) {
     return this._state.currencies.map((c) => {
       const b = progress(balances?.[String(c.id)]);
-      const lost = c.can_be_lost && b.lost ? html`<span class="lost">${t(this._lang, "lost", { n: b.lost })}</span>` : "";
+      const lost =
+        c.can_be_lost && b.lost
+          ? html`<span class="lost">${t(this._lang, "lost", { n: formatNumber(b.lost, c.decimals ?? 0, this._lang) })}</span>`
+          : "";
       const bar =
         b.pct === null
           ? ""
@@ -1852,7 +1917,7 @@ export class ChoresPanel extends Base {
               aria-label="${c.name}"><div class="fill" style="width:${b.pct}%"></div></div>`;
       return html`<div class="meter">
         <div class="meter-label">${icon(c.icon || "mdi:star")} ${c.name} ${lost}<span class="amount"
-            >${amountLabel(b, c.unit)}</span
+            >${amountLabel(b, c, this._lang)}</span
           ></div>
         ${bar}
       </div>`;
@@ -1928,7 +1993,7 @@ export class ChoresPanel extends Base {
     const cards = s.currencies.map((c) => {
       const items = p.items.filter((i) => i.currency_id === c.id);
       if (!items.length) return "";
-      const amount = (n) => `${n} ${c.unit}`;
+      const amount = (n) => formatAmount(n, c, L);
       const rows = items.map((i) => {
         const paid = i.paid
           ? html`${t(L, "paid", { amount: amount(i.paid.amount) })}${
@@ -1949,9 +2014,11 @@ export class ChoresPanel extends Base {
     const adjustments = p.adjustments.length
       ? html`<div class="card"><h2>${t(L, "adjustments")}</h2><table class="list">${p.adjustments.map((a) => {
           const cur = s.currencies.find((c) => c.id === a.currency_id);
-          return html`<tr><td>${this._kidName(a.kid_id)}</td><td class="num">${a.amount > 0 ? "+" : ""}${a.amount} ${
-            cur?.unit ?? ""
-          }</td><td>${a.note}</td><td class="muted">${formatTimestamp(a.created_at, L)}</td></tr>`;
+          return html`<tr><td>${this._kidName(a.kid_id)}</td><td class="num">${a.amount > 0 ? "+" : ""}${formatAmount(
+            a.amount,
+            cur,
+            L,
+          )}</td><td>${a.note}</td><td class="muted">${formatTimestamp(a.created_at, L)}</td></tr>`;
         })}</table></div>`
       : "";
     return html`${weekNav}${cards}${adjustments}`;
@@ -1971,7 +2038,7 @@ export class ChoresPanel extends Base {
     const chores = a.chores.map((c) => {
       const days = c.weekdays.length ? c.weekdays.map((d) => weekdayName(d, L).slice(0, 3)).join(" ") : t(L, "every_day");
       const values = Object.entries(c.values)
-        .map(([cid, v]) => `${v} ${a.currencies.find((x) => x.id === Number(cid))?.unit ?? ""}`)
+        .map(([cid, v]) => formatAmount(v, a.currencies.find((x) => x.id === Number(cid)), L))
         .join(", ");
       const who = c.kid_ids.map((id) => this._kidName(id)).join(", ");
       return html`<tr><td>${c.name}${inactive(c)}<br /><span class="muted"
@@ -2030,7 +2097,9 @@ export class ChoresPanel extends Base {
       if (e.action === "check" || e.action === "uncheck") what = after?.chore ?? "";
       else if (after?.chore) what = `${after.chore} → ${t(L, `act_${after.status}`)}`;
       else if (after?.name) what = after.name;
-      else if (after?.amount !== undefined && after?.amount !== null) what = String(after.amount);
+      else if (after?.amount !== undefined && after?.amount !== null) {
+        what = formatAmount(after.amount, this._currency(after.currency_id), L);
+      }
       const day = e.day && e.entity === "instance" ? shortDay(e.day, L) : "";
       const late = e.late
         ? html`<span class="late" role="img" aria-label="${t(L, "late_hint")}">${icon("mdi:alert")}</span>`
@@ -2169,8 +2238,9 @@ export class ChoresPanel extends Base {
         return html`<fieldset><legend>${field.label}</legend><div class="chips">${chips}</div></fieldset>`;
       }
       const type = field.type === "number" ? "number" : "text";
+      const mode = { number: "numeric", amount: "decimal" }[field.type];
       return html`<div class="field"><label for="${id}">${field.label}</label>
-        <input type="${type}" id="${id}" name="${field.key}" ${type === "number" ? raw('inputmode="numeric"') : ""} /></div>`;
+        <input type="${type}" id="${id}" name="${field.key}" ${mode ? raw(`inputmode="${mode}"`) : ""} /></div>`;
     });
     return html`<h3 id="dlg-form-title">${f.title}</h3>
       <form class="form" novalidate>${fields}
@@ -2192,6 +2262,9 @@ export class ChoresPanel extends Base {
       } else if (field.type === "multi") {
         const set = new Set((value ?? []).map(Number));
         for (const input of root.querySelectorAll(`[name="${field.key}"]`)) input.checked = set.has(Number(input.value));
+      } else if (field.type === "amount" && value !== undefined && value !== null) {
+        const decimals = this._fieldDecimals(field, this._form.values);
+        root.querySelector(`[name="${field.key}"]`).value = formatNumber(value, decimals, this._lang);
       } else if (value !== undefined && value !== null) {
         root.querySelector(`[name="${field.key}"]`).value = String(value);
       }

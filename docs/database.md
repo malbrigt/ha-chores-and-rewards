@@ -1,6 +1,6 @@
 # Database
 
-One SQLite file, `/config/chores_and_rewards.db`, included in HA backups. Every table is `STRICT`, and the schema version is kept in `PRAGMA user_version`. The conventions are listed at the top of `db.py` (D45).
+One SQLite file, `/config/chores_and_rewards.db`, included in HA backups. Every table is `STRICT`, the schema version is kept in `PRAGMA user_version`, and the file is stamped with `PRAGMA application_id` (an unstamped older file is set aside and recreated, not migrated). Amounts are integers in the currency's minor unit (`currencies.decimals`: 2 means cents, D50). The conventions are listed at the top of `db.py` (D45).
 
 ```mermaid
 erDiagram
@@ -27,7 +27,7 @@ erDiagram
 
 | Table | What it holds |
 |---|---|
-| `kids`, `currencies`, `chores` | Configuration, edited by a parent. They are soft-deleted (`deleted_at`) so history stays intact. Active names are unique, ignoring case. |
+| `kids`, `currencies`, `chores` | Configuration, edited by a parent. `currencies.decimals` (0–2) is fixed once the currency exists. They are soft-deleted (`deleted_at`) so history stays intact. Active names are unique, ignoring case. |
 | `kid_currency_max` | An optional weekly max per kid and currency (used by the fixed cap, D4). |
 | `chore_kids`, `chore_values` | Which kids a chore is for, and what it pays in each currency. `chores.weekdays` is a bitmask (bit 0 = Monday). |
 | `weeks` | One row per week, keyed by its Monday. Status is `open` or `closed`. |

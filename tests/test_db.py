@@ -9,6 +9,7 @@ import pytest
 
 from custom_components.chores_and_rewards import db as dbmod
 from custom_components.chores_and_rewards.db import (
+    APP_ID,
     SCHEMA_VERSION,
     Database,
     mask_to_weekdays,
@@ -83,29 +84,19 @@ def test_upgrade_backs_up_and_applies(tmp_path, monkeypatch):
     assert [k.name for k in backup.run(lambda r: r.list_kids())] == ["Ada"]
 
 
-def test_v1_to_v2_keeps_rows_and_adds_earn_currency(tmp_path, monkeypatch):
-    """D49: a v0.2.0 database (schema v1) gains instances.currency_id, rows kept as NULL."""
-    path = tmp_path / "chores.db"
-    monkeypatch.setattr(dbmod, "MIGRATIONS", dbmod.MIGRATIONS[:1])
-    monkeypatch.setattr(dbmod, "SCHEMA_VERSION", 1)
-    old = Database(path)
-    old.migrate()
-    kid = old.run(lambda r: r.save_kid(Kid(0, "Ada")))
+def test_only_a_done_row_earns_a_currency(db):
+    """D49: instances.currency_id is set for a done extra chore only (a CHECK)."""
+    kid = db.run(lambda r: r.save_kid(Kid(0, "Ada")))
     trash = Chore(0, "Trash", ChoreType.BONUS, frozenset({kid}), frozenset(), Slot.ANYTIME, {1: 5})
-    old.run(
+    db.run(
         lambda r: r.insert_instances(
             instances_for_day([r.get_chore(r.save_chore(trash))], [kid], MON)
         )
     )
-    monkeypatch.undo()
-
-    db = Database(path)
-    assert db.migrate() == SCHEMA_VERSION == 2
     (row,) = db.run(lambda r: r.list_instances())
-    assert row.name == "Trash" and row.currency_id is None
     db.run(lambda r: r.set_status(row.id, Status.DONE, "kid", currency_id=1))
     assert db.run(lambda r: r.get_instance(row.id)).currency_id == 1
-    with pytest.raises(sqlite3.IntegrityError):  # only a done row earns a currency
+    with pytest.raises(sqlite3.IntegrityError):
         db.run(lambda r: r.set_status(row.id, Status.PENDING, "kid", currency_id=1))
 
 
@@ -366,22 +357,35 @@ def test_insert_instances_derives_week_per_day(db):
     assert len(db.run(lambda r: r.list_instances(week=mon))) == 1
 
 
-def test_legacy_pre_02_file_is_set_aside(tmp_path, caplog):
-    """D45: a pre-0.2 file (version in a meta table) is backed up and replaced, not migrated."""
+@pytest.mark.parametrize(
+    "old_schema",
+    [
+        # pre-0.2: schema version kept in a meta table
+        "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);"
+        "INSERT INTO meta VALUES ('schema_version', '2');",
+        # 0.1/0.2 releases: user_version set, but no application_id stamp
+        "PRAGMA user_version = 2;",
+    ],
+    ids=["pre-0.2", "0.2"],
+)
+def test_old_file_is_set_aside_and_recreated(tmp_path, caplog, old_schema):
+    """D45: a file without our application_id is backed up and replaced, not migrated."""
     path = tmp_path / "chores.db"
-    with closing(sqlite3.connect(path)) as conn, conn:
-        conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)")
-        conn.execute("INSERT INTO meta VALUES ('schema_version', '2')")
-        conn.execute("CREATE TABLE kids (id INTEGER PRIMARY KEY, name TEXT)")
-        conn.execute("INSERT INTO kids (name) VALUES ('Old Ada')")
+    with closing(sqlite3.connect(path)) as conn:
+        conn.executescript(
+            old_schema + "CREATE TABLE kids (id INTEGER PRIMARY KEY, name TEXT);"
+            "INSERT INTO kids (name) VALUES ('Old Ada');"
+        )
     db = Database(path)
     assert db.migrate() == SCHEMA_VERSION
     assert db.run(lambda r: r.list_kids()) == []
+    with closing(sqlite3.connect(path)) as conn:
+        assert conn.execute("PRAGMA application_id").fetchone()[0] == APP_ID
     backups = list(tmp_path.glob("chores.db.legacy-*.bak"))
     assert len(backups) == 1
     with closing(sqlite3.connect(backups[0])) as conn:
         assert conn.execute("SELECT name FROM kids").fetchone()[0] == "Old Ada"
-    assert "Old pre-0.2 database" in caplog.text
+    assert "Old database moved" in caplog.text
     db.migrate()  # a current file is left alone
     assert len(list(tmp_path.glob("chores.db.legacy-*.bak"))) == 1
 
