@@ -550,3 +550,4 @@ The panel URL was `panel.js?v=<version>`. Going back to 0.1.0 reused an old URL,
 - **Schema v2:** `once_a_day` on `chores` and `instances` (snapshot, D6), added with `ALTER TABLE`, since v0.1.0 is live. Tested from a v1 file with data (backup, data kept, default off). Replay reads old audit rows without the key as off.
 - The chore form always shows the toggle (forms have no per-type fields); the panel only sends it for extras.
 - Seed: "Vacuum the mudroom" and a new "Set the table" are once a day. E2E: Bo sets the table, Ada's row shows "Taken by Bo" (`10-taken.png`).
+- Follow-up: removed the dashed line above "Extra"; the last chore row's own divider already separates it.

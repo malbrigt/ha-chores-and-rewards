@@ -780,7 +780,7 @@ const STYLES = `
   .chore.missed .box, .chore.rejected .box { border-color: var(--error-color); color: var(--error-color); }
   .chore.excused .box { color: var(--secondary-text-color); }
   .chore[disabled] { cursor: default; opacity: 0.75; }
-  .bonus { margin-top: 18px; padding-top: 6px; border-top: 2px dashed var(--divider-color); opacity: 0.6; }
+  .bonus { margin-top: 18px; opacity: 0.6; }
   .bonus .chore { min-height: 48px; font-size: 1rem; }
   .bonus .box { border-radius: 50%; width: 28px; height: 28px; }
   .late { color: var(--warning-color, #ffa600); --mdc-icon-size: 16px; margin-left: 4px; }
