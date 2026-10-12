@@ -32,6 +32,7 @@ from .logic import (
     is_late,
     is_scheduled,
     payout_warnings,
+    taken_by,
     transition,
     undo_status,
     week_start,
@@ -103,6 +104,12 @@ def _earns(repo: Repo, ctx: Ctx, inst: Instance, status: Status, wanted: int | N
     return wanted
 
 
+def _require_free(repo: Repo, inst: Instance, status: Status) -> None:
+    """A once-a-day extra already done by another kid that day can't be done again (D51)."""
+    if status is Status.DONE and taken_by(inst, repo.list_instances(day=inst.day)) is not None:
+        raise RuleError("taken")
+
+
 def set_done(
     repo: Repo, ctx: Ctx, instance_id: int, done: bool, currency_id: int | None = None
 ) -> Instance:
@@ -114,6 +121,7 @@ def set_done(
     _require_open(repo, week_start(inst.day))
     target = Status.DONE if done else undo_status(inst, ctx.today)
     new = transition(inst, target, Actor.KID, ctx.today)
+    _require_free(repo, inst, target)
     new = replace(new, currency_id=_earns(repo, ctx, inst, target, currency_id))
     action = AuditAction.CHECK if done else AuditAction.UNCHECK
     return _record_status(repo, action, ctx, inst, new, status_by=Actor.KID.value)
@@ -126,6 +134,7 @@ def set_status(
     inst = require(repo.get_instance(instance_id))
     _require_open(repo, week_start(inst.day))
     new = transition(inst, status, Actor.PARENT, ctx.today)
+    _require_free(repo, inst, status)
     new = replace(new, currency_id=_earns(repo, ctx, inst, status, currency_id))
     return _record_status(repo, AuditAction.SET_STATUS, ctx, inst, new, status_by=ctx.by)
 
@@ -206,6 +215,8 @@ def save_chore(repo: Repo, ctx: Ctx, chore: Chore) -> tuple[int, list[int]]:
     known_currencies = {c.id for c in repo.list_currencies(True)}
     if not chore.kid_ids <= known_kids or not set(chore.values) <= known_currencies:
         raise NotFound
+    if chore.once_a_day and chore.type is not ChoreType.BONUS:
+        raise RuleError("not_allowed")  # an expected chore is every kid's own (D51)
     before = chore_json(require(repo.get_chore(chore.id))) if chore.id else None
     chore_id = repo.save_chore(chore)
     saved = require(repo.get_chore(chore_id))

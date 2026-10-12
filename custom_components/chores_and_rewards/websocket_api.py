@@ -195,7 +195,10 @@ async def ws_get_state(
             "board": {
                 str(kid_id): {
                     "chores": [instance_out(i) for i in data.chores],
-                    "bonus": [instance_out(i) for i in data.bonus],
+                    "bonus": [
+                        {**instance_out(i), "taken_by": data.taken.get(i.id or 0)}
+                        for i in data.bonus
+                    ],
                     "balances": balances_json(data.balances),
                 }
                 for kid_id, data in board(repo, day, today).items()
@@ -425,6 +428,7 @@ async def ws_currency_delete(
         vol.Required("values"): {vol.Coerce(int): _NON_NEG},
         vol.Optional("active", default=True): bool,
         vol.Optional("sort", default=0): int,
+        vol.Optional("once_a_day", default=False): bool,
     }
 )
 async def ws_chore_save(
@@ -443,6 +447,7 @@ async def ws_chore_save(
         description=msg["description"],
         active=msg["active"],
         sort=msg["sort"],
+        once_a_day=msg["once_a_day"],
     )
     run = partial(actions.save_chore, ctx=_ctx(connection, store), chore=chore)
     chore_id, warnings = await store.async_write(run)

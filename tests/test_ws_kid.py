@@ -279,3 +279,43 @@ async def test_extra_pays_or_refills_a_loss(hass, ws, freezer):
 
     log = await ws.entry.runtime_data.async_read(lambda r: r.list_audit(actions=["check"]))
     assert '"currency_id": 1' in log[0]["after"]
+
+
+async def test_once_a_day_extra_goes_to_the_first_kid(ws):
+    """AC-6.8, AC-5.7, D51: one kid takes a once-a-day extra; others see who, and can't."""
+    token = await unlock(ws)
+    ada = (await ok(ws, "admin/kid/save", token=token, name="Ada"))["id"]
+    bo = (await ok(ws, "admin/kid/save", token=token, name="Bo"))["id"]
+    extra = {"chore_type": "bonus", "slot": "anytime", "weekdays": [], "values": {MONEY: 10}}
+    dust = chore([ada, bo], name="Dust", once_a_day=True, **extra)
+    await ok(ws, "admin/chore/save", token=token, **dust)
+    await ok(ws, "admin/chore/save", token=token, **chore([ada, bo], name="Trash", **extra))
+    assert (
+        await err(ws, "admin/chore/save", token=token, **chore([ada], name="Bed", once_a_day=True))
+        == "not_allowed"
+    )  # an expected chore is every kid's own
+
+    async def row(kid, name):
+        return next(i for i in (await kid_board(ws, kid))["bonus"] if i["name"] == name)
+
+    await ok(ws, "set_done", instance_id=(await row(ada, "Dust"))["id"], done=True)
+    bo_dust = await row(bo, "Dust")
+    assert (bo_dust["taken_by"], (await row(ada, "Dust"))["taken_by"]) == (ada, None)
+    assert await err(ws, "set_done", instance_id=bo_dust["id"], done=True) == "taken"
+    assert (
+        await err(ws, "parent/set_status", token=token, instance_id=bo_dust["id"], status="done")
+        == "taken"
+    )
+
+    # The trash (setting off) is open to every kid.
+    await ok(ws, "set_done", instance_id=(await row(ada, "Trash"))["id"], done=True)
+    await ok(ws, "set_done", instance_id=(await row(bo, "Trash"))["id"], done=True)
+
+    # A parent reject frees it again; so does an untick.
+    ada_dust = await row(ada, "Dust")
+    await ok(ws, "parent/set_status", token=token, instance_id=ada_dust["id"], status="rejected")
+    assert (await row(bo, "Dust"))["taken_by"] is None
+    await ok(ws, "set_done", instance_id=bo_dust["id"], done=True)
+    assert (await row(ada, "Dust"))["taken_by"] == bo
+    await ok(ws, "set_done", instance_id=bo_dust["id"], done=False)
+    assert (await row(ada, "Dust"))["taken_by"] is None

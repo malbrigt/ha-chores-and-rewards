@@ -51,7 +51,8 @@ def replay(entries: list[dict[str, Any]]) -> dict[str, Any]:
         elif action is A.CURRENCY_SAVE:
             st["currencies"][eid] = {**_without_id(after), "deleted": False}
         elif action is A.CHORE_SAVE:
-            st["chores"][eid] = {**_without_id(after), "deleted": False}
+            # Rows logged before schema v2 have no once_a_day (D51).
+            st["chores"][eid] = {"once_a_day": False, **_without_id(after), "deleted": False}
         elif action is A.SETTINGS_SAVE:
             st["settings"] = after
         elif action in (A.WEEK_OPEN, A.REOPEN_WEEK):
@@ -59,7 +60,7 @@ def replay(entries: list[dict[str, Any]]) -> dict[str, Any]:
         elif action is A.CLOSE_WEEK:
             st["weeks"][e["day"]] = "closed"
         elif action in (A.INSTANCE_CREATE, A.INSTANCE_UPDATE):
-            st["instances"][eid] = _without_id(after)
+            st["instances"][eid] = {"once_a_day": False, **_without_id(after)}
         elif action is A.INSTANCE_DELETE:
             del st["instances"][eid]
         elif action in STATUS_ACTIONS:

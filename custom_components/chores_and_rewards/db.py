@@ -239,9 +239,17 @@ SELECT strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'), 'system', 'currency_save', 'c
 FROM currencies;
 """
 
+# v2: once-a-day extras (D51). Existing chores and rows default to off.
+_V2_ONCE_A_DAY = """
+ALTER TABLE chores ADD COLUMN once_a_day INTEGER NOT NULL DEFAULT 0
+    CHECK (once_a_day IN (0, 1));
+ALTER TABLE instances ADD COLUMN once_a_day INTEGER NOT NULL DEFAULT 0
+    CHECK (once_a_day IN (0, 1));
+"""
+
 # Index i holds the script that upgrades schema version i to i + 1 (PRAGMA user_version).
-# One clean schema; add scripts here for future changes.
-MIGRATIONS: list[str] = [_SCHEMA]
+# Never edit a released entry; append a new one.
+MIGRATIONS: list[str] = [_SCHEMA, _V2_ONCE_A_DAY]
 SCHEMA_VERSION = len(MIGRATIONS)
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -502,6 +510,7 @@ class Repo:
             "weekdays": weekdays_to_mask(c.weekdays),
             "active": c.active,
             "sort": c.sort,
+            "once_a_day": c.once_a_day,
         }
         chore_id = self._save("chores", c.id, fields)
         self._x("DELETE FROM chore_kids WHERE chore_id = ?", [chore_id])
@@ -581,7 +590,8 @@ class Repo:
         for i in rows:
             row = self._x(
                 "INSERT OR IGNORE INTO instances (week, kid_id, chore_id, day, type, slot, name,"
-                " icon, status, status_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+                " icon, status, status_at, once_a_day) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " RETURNING id",
                 [
                     week_start(i.day).isoformat(),
                     i.kid_id,
@@ -593,6 +603,7 @@ class Repo:
                     i.icon,
                     i.status.value,
                     i.status_at,
+                    i.once_a_day,
                 ],
             ).fetchone()
             if row is not None:  # None: the (kid, chore, day) row already existed
@@ -634,13 +645,14 @@ class Repo:
     def resync_pending(self, chore: Chore, day: date, by: str | None = SYSTEM_USER) -> None:
         """Refresh pending snapshots of `chore` on `day` after an edit (D7)."""
         rows = self._x(
-            "UPDATE instances SET type = ?, slot = ?, name = ?, icon = ?"
+            "UPDATE instances SET type = ?, slot = ?, name = ?, icon = ?, once_a_day = ?"
             " WHERE chore_id = ? AND day = ? AND status = ? RETURNING id, kid_id",
             [
                 chore.type.value,
                 chore.slot.value,
                 chore.name,
                 chore.icon,
+                chore.once_a_day,
                 chore.id,
                 day.isoformat(),
                 Status.PENDING,
@@ -904,6 +916,7 @@ def _chore(r: sqlite3.Row, kid_ids: set[int], values: dict[int, int]) -> Chore:
         description=r["description"],
         active=bool(r["active"]),
         sort=r["sort"],
+        once_a_day=bool(r["once_a_day"]),
     )
 
 
@@ -921,4 +934,5 @@ def _instance(r: sqlite3.Row, values: dict[int, int]) -> Instance:
         status=Status(r["status"]),
         status_at=r["status_at"],
         currency_id=r["currency_id"],
+        once_a_day=bool(r["once_a_day"]),
     )

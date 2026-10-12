@@ -119,6 +119,7 @@ class Chore:
     description: str = ""
     active: bool = True
     sort: int = 0
+    once_a_day: bool = False  # extras only: the first kid to do it takes it that day (D51)
 
 
 @dataclass(frozen=True)
@@ -137,6 +138,7 @@ class Instance:
     id: int | None = None  # set once stored
     status_at: str | None = None  # ISO UTC time of the last status change
     currency_id: int | None = None  # extra chores: the one currency it earns (D49)
+    once_a_day: bool = False  # snapshot of Chore.once_a_day (D51)
 
 
 @dataclass(frozen=True)
@@ -223,6 +225,24 @@ def snapshot(chore: Chore, kid_id: int, day: date) -> Instance:
         name=chore.name,
         values=dict(chore.values),
         icon=chore.icon,
+        once_a_day=chore.once_a_day,
+    )
+
+
+def taken_by(inst: Instance, same_day: Iterable[Instance]) -> int | None:
+    """The kid who already did this once-a-day chore today, if it isn't `inst`'s kid (D51)."""
+    if not inst.once_a_day:
+        return None
+    return next(
+        (
+            i.kid_id
+            for i in same_day
+            if i.chore_id == inst.chore_id
+            and i.day == inst.day
+            and i.kid_id != inst.kid_id
+            and i.status is Status.DONE
+        ),
+        None,
     )
 
 

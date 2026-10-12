@@ -134,6 +134,16 @@ def main() -> None:
         expect(trash).to_contain_text("+10 min")
         expect(kid(a, "Ada")).not_to_contain_text("−10 lost")
 
+        # Once a day (D51): Bo sets the table, so Ada's row shows it's taken.
+        kid(a, "Bo").locator(".chore", has_text="Set the table").click()
+        expect(kid(a, "Bo").locator(".chore", has_text="Set the table")).to_have_class(
+            re.compile(r"\bdone\b")
+        )
+        ada_table = kid(a, "Ada").locator(".chore", has_text="Set the table")
+        expect(ada_table).to_contain_text("Taken by Bo")
+        expect(ada_table).to_be_disabled()
+        a.screenshot(path=ARTIFACTS / "10-taken.png")
+
         # The panel follows the HA user's language: Norwegian (AC-8.5). The profile
         # setting wins over the browser's, so switch it the way HA's profile page does.
         a.evaluate(

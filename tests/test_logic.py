@@ -24,6 +24,7 @@ from custom_components.chores_and_rewards.logic import (
     payout_warnings,
     resolve_cap,
     snapshot,
+    taken_by,
     transition,
     undo_status,
     week_days,
@@ -341,3 +342,31 @@ def test_is_payout_day():
 
 def test_rule_error_code():
     assert str(RuleError("x")) == "x" and RuleError("x").code == "x"
+
+
+@pytest.mark.parametrize(
+    ("once_a_day", "rows", "kid", "expected"),
+    [
+        (True, {1: Status.DONE, 2: Status.PENDING}, 2, 1),
+        (True, {1: Status.DONE, 2: Status.PENDING}, 1, None),  # your own tick
+        (True, {1: Status.REJECTED, 2: Status.PENDING}, 2, None),  # a reject frees it
+        (True, {1: Status.PENDING, 2: Status.PENDING}, 2, None),
+        (False, {1: Status.DONE, 2: Status.PENDING}, 2, None),  # e.g. the trash
+    ],
+)
+def test_taken_by(once_a_day, rows, kid, expected):
+    """AC-6.8, D51: a once-a-day extra belongs to the first kid who did it that day."""
+    chore = Chore(
+        1,
+        "Dust",
+        ChoreType.BONUS,
+        frozenset(rows),
+        frozenset(),
+        Slot.ANYTIME,
+        {2: 10},
+        once_a_day=once_a_day,
+    )
+    insts = [replace(snapshot(chore, k, MON), status=st) for k, st in rows.items()]
+    mine = next(i for i in insts if i.kid_id == kid)
+    assert mine.once_a_day is once_a_day  # copied from the chore (D6)
+    assert taken_by(mine, insts) == expected

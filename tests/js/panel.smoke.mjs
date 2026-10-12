@@ -212,6 +212,7 @@ test("admin: new chore form saves the typed values and shows the payout warning"
   assert.deepEqual(save.kid_ids, [1]);
   assert.deepEqual(save.values, { 1: 15 });
   assert.equal(save.chore_type, "expected");
+  assert.equal(save.once_a_day, false, "once a day is for extras only (D51)");
   assert.ok(root.querySelector(".toast.info")?.textContent.includes("Skjermtid"), "payout warning");
   assert.equal(root.querySelector("form.form"), null, "form closed");
 });
@@ -307,6 +308,16 @@ test("extra chore: lost screen time → pick pay or win back; nothing lost → p
   await tick();
   assert.equal(second.root.querySelector('[data-action="sheet-item"]'), null);
   assert.deepEqual(second.hass.calls.at(-1), { type: "chores_and_rewards/set_done", instance_id: 3, done: true });
+});
+
+test("a once-a-day extra another kid did is greyed out with who took it (AC-6.8, D51)", async () => {
+  const state = structuredClone(STATE);
+  state.board[2].bonus = [{ ...inst(5, 2, "Vaske vinduer", "anytime", "bonus"), taken_by: 1 }];
+  const { root } = await mount(state);
+  const row = root.querySelector('[data-action="toggle"][data-id="5"]');
+  assert.ok(row.classList.contains("taken"));
+  assert.ok(row.hasAttribute("disabled"), "can't be ticked");
+  assert.ok(row.textContent.includes("Tatt av Ada"));
 });
 
 test("a currency with decimals shows 0,50 and the adjust form sends cents (AC-3.4, D50)", async () => {

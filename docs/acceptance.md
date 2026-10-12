@@ -21,6 +21,7 @@ IDs follow the spec sections. Tests reference these IDs.
 - AC-5.4 WHEN a bonus chore is not done THEN nothing is lost and it is never marked missed.
 - AC-5.5 WHEN a chore pays a currency on a day after that currency's payout day THEN saving shows a warning but succeeds.
 - AC-5.6 WHEN a chore is edited THEN past instances keep their snapshot.
+- AC-5.7 WHEN a chore is saved as once a day THEN it must be an extra (bonus); an expected chore is refused (D51).
 
 ## §6 Daily flow
 - AC-6.1 WHEN a kid taps a chore THEN it is done immediately (no approval) and progress updates live.
@@ -28,6 +29,7 @@ IDs follow the spec sections. Tests reference these IDs.
 - AC-6.3 WHEN HA was off across midnight(s) THEN on startup each missed day is processed in order, exactly once.
 - AC-6.6 WHEN a kid ticks an extra chore THEN it earns one currency: a can't-be-lost currency (payment) is always on offer, a can-be-lost one only while the kid has lost some this week. WHEN there are two options THEN the kid picks; WHEN one THEN no question (D49).
 - AC-6.7 WHEN an extra chore refills a lost currency THEN the balance rises by at most what was lost, and never above the cap (D49).
+- AC-6.8 WHEN one kid has done a once-a-day extra THEN the other kids see it greyed out as taken by that kid and can't tick it (nor can a parent mark it done); untick or reject frees it (D51).
 
 ## §7 PIN
 - AC-7.1 WHEN the correct PIN is given THEN a session opens that expires after 5 min idle.
@@ -48,6 +50,9 @@ IDs follow the spec sections. Tests reference these IDs.
 ## §9 Settlement
 - AC-9.1 WHEN it is a currency's payout day THEN the PIN view shows the amount per kid and lets the parent tick "paid" or "entered".
 - AC-9.2 WHEN a week closes (manually or at Monday 00:00) THEN it is archived and a clean week starts.
+
+## §11 Storage
+- AC-11.1 WHEN HA starts with a database from an earlier release THEN it is backed up (`.bak-v<n>`) and upgraded in place, keeping all data.
 
 ## §12 Sensors
 - AC-12.1 Each kid × active currency has a sensor whose state is the current balance, updated live.

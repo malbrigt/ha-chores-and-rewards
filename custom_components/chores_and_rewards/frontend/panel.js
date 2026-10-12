@@ -25,6 +25,9 @@ export const STRINGS = {
     act_done_for: "Merk som gjort: {label}",
     error_nothing_lost: "Ingenting å vinne tilbake.",
     error_decimals_locked: "Desimaler kan ikke endres etter at valutaen er laget.",
+    error_taken: "Et annet barn har allerede gjort denne i dag.",
+    taken_by: "Tatt av {name}",
+    f_once_a_day: "Kun ett barn per dag (ekstraoppgaver)",
     f_decimals: "Desimaler (kan ikke endres senere)",
     back: "Tilbake",
     more_actions: "Flere valg for {name}",
@@ -189,6 +192,9 @@ export const STRINGS = {
     act_done_for: "Mark done: {label}",
     error_nothing_lost: "Nothing to win back.",
     error_decimals_locked: "Decimals can't be changed once the currency exists.",
+    error_taken: "Another kid already did this one today.",
+    taken_by: "Taken by {name}",
+    f_once_a_day: "Only one kid per day (extras)",
     f_decimals: "Decimals (can't be changed later)",
     back: "Back",
     more_actions: "More options for {name}",
@@ -743,6 +749,7 @@ const STYLES = `
   .meter-label .amount { margin-left: auto; color: var(--primary-text-color); }
   .meter-label .lost { color: var(--error-color); font-size: 0.85rem; }
   .chore .earned { margin-left: auto; color: var(--secondary-text-color); font-size: 0.85rem; }
+  .chore.taken { opacity: 0.5; }
   ha-icon { --mdc-icon-size: 20px; }
   .bar { height: 10px; border-radius: 5px; background: var(--divider-color); overflow: hidden; margin-top: 3px; }
   .fill { height: 100%; background: var(--primary-color); border-radius: 5px; }
@@ -1390,7 +1397,9 @@ export class ChoresPanel extends Base {
     const setStatus = (status, extra = {}) =>
       this._run(() => this._pws("parent/set_status", { instance_id: inst.id, status, ...extra }));
     const options = this._earnOptions(inst);
-    const items = parentActions(inst, this._state.today).flatMap((status) =>
+    // A once-a-day extra another kid already did can't be marked done (D51).
+    const statuses = parentActions(inst, this._state.today).filter((s) => !(s === "done" && inst.taken_by != null));
+    const items = statuses.flatMap((status) =>
       status === "done" && options.length > 1
         ? options.map((cid) => ({
             label: t(L, "act_done_for", { label: this._earnLabel(inst, cid) }),
@@ -1570,6 +1579,7 @@ export class ChoresPanel extends Base {
     const L = this._lang;
     const chore = this._admin.chores.find((c) => c.id === choreId) ?? {
       chore_type: "expected",
+      once_a_day: false,
       slot: "afternoon",
       weekdays: [],
       kid_ids: [],
@@ -1616,6 +1626,7 @@ export class ChoresPanel extends Base {
         { key: "icon", type: "text", label: t(L, "f_icon") },
         { key: "description", type: "text", label: t(L, "f_description") },
         { key: "sort", type: "number", label: t(L, "f_sort") },
+        { key: "once_a_day", type: "bool", label: t(L, "f_once_a_day") },
         { key: "active", type: "bool", label: t(L, "f_active") },
       ],
       values: {
@@ -1635,6 +1646,7 @@ export class ChoresPanel extends Base {
           description: v.description,
           sort: v.sort ?? 0,
           active: v.active,
+          once_a_day: v.chore_type === "bonus" && Boolean(v.once_a_day), // extras only (D51)
         });
         // AC-5.5: a warning only; the chore is saved.
         if (result.warnings.length) {
@@ -1873,7 +1885,8 @@ export class ChoresPanel extends Base {
     // Parents also get a ⋯ menu and see a warning icon on ticks made after the chore's day.
     const L = this._lang;
     const open = this._state.week_status === "open";
-    const tappable = open && kidTap(inst, this._state.today) !== null;
+    const taken = inst.taken_by != null; // once-a-day extra, already done by another kid (D51)
+    const tappable = open && !taken && kidTap(inst, this._state.today) !== null;
     const late =
       this._parent && inst.late
         ? html`<span class="late" title="${t(L, "late_hint")}" role="img" aria-label="${t(L, "late_hint")}"
@@ -1886,9 +1899,10 @@ export class ChoresPanel extends Base {
             aria-label="${t(L, "more_actions", { name: inst.name })}">${icon("mdi:dots-vertical")}</button>`
         : "";
     const box = inst.status === "pending" ? "" : cellSymbol(inst.status);
-    const earned = this._earnedTag(inst);
+    const takenName = taken ? this._state.kids.find((k) => k.id === inst.taken_by)?.name : null;
+    const earned = taken ? html`<span class="earned">${t(L, "taken_by", { name: takenName ?? "?" })}</span>` : this._earnedTag(inst);
     return html`<div class="row">
-      <button class="chore ${inst.status}" data-action="toggle" data-id="${inst.id}" role="checkbox"
+      <button class="chore ${inst.status}${taken ? " taken" : ""}" data-action="toggle" data-id="${inst.id}" role="checkbox"
         aria-checked="${inst.status === "done" ? "true" : "false"}" ${tappable ? "" : raw("disabled")}>
         <span class="box" aria-hidden="true">${box}</span><span>${inst.name}</span>${earned}${late}
       </button>${more}

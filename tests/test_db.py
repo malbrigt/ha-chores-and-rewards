@@ -524,3 +524,42 @@ def test_instance_ids_are_never_reused(db):
     chores = db.run(lambda r: r.list_chores())
     db.run(lambda r: r.insert_instances(instances_for_day(chores, [ada], MON)))
     assert db.run(lambda r: r.list_instances())[0].id > old
+
+
+def test_v1_database_upgrades_keeping_data(tmp_path, monkeypatch):
+    """AC-11.1, D51: a live v0.1.0 file migrates to once-a-day extras, data kept, backed up."""
+    path = tmp_path / "chores.db"
+    monkeypatch.setattr(dbmod, "MIGRATIONS", dbmod.MIGRATIONS[:1])
+    monkeypatch.setattr(dbmod, "SCHEMA_VERSION", 1)
+    Database(path).migrate()
+    with closing(sqlite3.connect(path)) as conn, conn:  # v1 rows, written without the new column
+        conn.execute("INSERT INTO kids (name) VALUES ('Ada')")
+        conn.execute(
+            "INSERT INTO chores (name, type, slot, weekdays)"
+            " VALUES ('Dust', 'bonus', 'anytime', 127)"
+        )
+        conn.execute("INSERT INTO weeks (start) VALUES (?)", [MON.isoformat()])
+        conn.execute(
+            "INSERT INTO instances (week, kid_id, chore_id, day, type, slot, name)"
+            " VALUES (?, 1, 1, ?, 'bonus', 'anytime', 'Dust')",
+            [MON.isoformat(), MON.isoformat()],
+        )
+    monkeypatch.undo()
+
+    db = Database(path)
+    assert db.migrate() == SCHEMA_VERSION == 2
+    assert Database(tmp_path / "chores.db.bak-v1").schema_version() == 1
+    assert [(c.name, c.once_a_day) for c in db.run(lambda r: r.list_chores())] == [("Dust", False)]
+    assert [(i.name, i.once_a_day) for i in db.run(lambda r: r.list_instances())] == [
+        ("Dust", False)
+    ]
+
+
+def test_once_a_day_is_stored_and_snapshotted(db):
+    """D51, AC-5.7: the chore keeps the setting; its instances copy it (D6)."""
+    kid = db.run(lambda r: r.save_kid(Kid(0, "Ada")))
+    dust = _chore([kid], type=ChoreType.BONUS, weekdays=frozenset(), once_a_day=True)
+    chore_id = db.run(lambda r: r.save_chore(dust))
+    assert db.run(lambda r: r.get_chore(chore_id)).once_a_day
+    db.run(lambda r: r.insert_instances(instances_for_day([r.get_chore(chore_id)], [kid], MON)))
+    assert db.run(lambda r: r.list_instances())[0].once_a_day

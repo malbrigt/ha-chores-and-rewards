@@ -21,6 +21,7 @@ from .logic import (
     is_payout_day,
     payout_day,
     resolve_cap,
+    taken_by,
     week_pot,
     week_start,
 )
@@ -66,6 +67,7 @@ class KidBoard:
     chores: list[Instance]  # expected, ordered by slot
     bonus: list[Instance]
     balances: dict[int, Balance]
+    taken: dict[int, int]  # instance id -> the kid who already did it (once a day, D51)
 
 
 def board(repo: Repo, day: date, today: date) -> dict[int, KidBoard]:
@@ -87,6 +89,11 @@ def board(repo: Repo, day: date, today: date) -> dict[int, KidBoard]:
             chores=[i for i in mine if i.type is ChoreType.EXPECTED],
             bonus=[i for i in mine if i.type is ChoreType.BONUS],
             balances=balances.get(kid.id, {}),
+            taken={
+                i.id: kid_id
+                for i in mine
+                if i.id is not None and (kid_id := taken_by(i, rows)) is not None
+            },
         )
     return out
 
