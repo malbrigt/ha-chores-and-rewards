@@ -22,6 +22,7 @@ from .logic import (
     payout_day,
     resolve_cap,
     taken_by,
+    week_days,
     week_pot,
     week_start,
 )
@@ -73,13 +74,16 @@ class KidBoard:
 def board(repo: Repo, day: date, today: date) -> dict[int, KidBoard]:
     """Per kid: expected chores and bonus chores for `day`, plus that week's balances.
 
-    Future days have no rows yet, so they get an unsaved preview from the schedule (D37).
+    Future days get an unsaved preview from the schedule (D37), with any rows already
+    ticked ahead in their place (D52).
     """
     week = week_start(day)
     kids = repo.list_kids()
     found = repo.list_instances(day=day)
-    if day > today and not found:
-        found = instances_for_day(repo.list_chores(), [k.id for k in kids], day)
+    if day > today:
+        stored = {(i.kid_id, i.chore_id) for i in found}
+        preview = instances_for_day(repo.list_chores(), [k.id for k in kids], day)
+        found += [i for i in preview if (i.kid_id, i.chore_id) not in stored]
     rows = sorted(found, key=_sort_key)
     balances = week_balances(repo, week, today)
     out = {}
@@ -98,10 +102,24 @@ def board(repo: Repo, day: date, today: date) -> dict[int, KidBoard]:
     return out
 
 
-def week_grid(repo: Repo, kid_id: int, week: date) -> list[dict]:
-    """One row per chore seen that week, with the instance per day (AC-8.3)."""
+def week_grid(repo: Repo, kid_id: int, week: date, today: date) -> list[dict]:
+    """One row per chore seen that week, with the instance per day (AC-8.3).
+
+    Days that haven't come show chores that can be ticked ahead as unsaved previews
+    (id None) until a row exists (D52).
+    """
+    found = repo.list_instances(week=week, kid_id=kid_id)
+    stored = {(i.chore_id, i.day) for i in found}
+    ahead = [c for c in repo.list_chores() if c.can_tick_ahead]
+    for day in week_days(week):
+        if day > today:
+            found += [
+                i
+                for i in instances_for_day(ahead, [kid_id], day)
+                if (i.chore_id, i.day) not in stored
+            ]
     rows: dict[int, dict] = {}
-    for inst in sorted(repo.list_instances(week=week, kid_id=kid_id), key=_sort_key):
+    for inst in sorted(found, key=_sort_key):
         row = rows.setdefault(
             inst.chore_id,
             {"chore_id": inst.chore_id, "type": inst.type, "slot": inst.slot, "days": {}},

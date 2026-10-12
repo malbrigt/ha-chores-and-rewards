@@ -43,7 +43,12 @@ def wait_for_state(entity_id: str, expected: str, timeout: float = 5.0) -> None:
 def open_tablet(browser, name: str, lang: str = "en") -> Page:
     locale = {"en": "en-GB", "nb": "nb-NO"}[lang]
     context = browser.new_context(
-        viewport={"width": 1280, "height": 800}, locale=locale, timezone_id="Europe/Oslo"
+        viewport={"width": 1280, "height": 800},
+        locale=locale,
+        timezone_id="Europe/Oslo",
+        # HA's service worker reloads the page once it takes control (controllerchange),
+        # seconds after the first load, which would reset a tablet mid-test.
+        service_workers="block",
     )
     # Log in the way the HA frontend does: tokens + language in localStorage.
     context.add_init_script(
@@ -143,6 +148,16 @@ def main() -> None:
         expect(ada_table).to_contain_text("Taken by Bo")
         expect(ada_table).to_be_disabled()
         a.screenshot(path=ARTIFACTS / "10-taken.png")
+
+        # Tick ahead (D52): Ada did next Monday's homework already, from her week view.
+        kid(a, "Ada").locator(".kid-name").click()
+        a.locator('[data-action="week-next"]').click()
+        row = a.locator("table.week tr", has_text="Homework")
+        row.locator('[data-action="toggle"]').first.click()
+        a.locator('[data-action="dialog-yes"]').click()
+        expect(row.locator("td.cell.done")).to_have_count(1)
+        a.screenshot(path=ARTIFACTS / "11-tick-ahead.png")
+        a.locator('[data-action="back"]').click()
 
         # The panel follows the HA user's language: Norwegian (AC-8.5). The profile
         # setting wins over the browser's, so switch it the way HA's profile page does.

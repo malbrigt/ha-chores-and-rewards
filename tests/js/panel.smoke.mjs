@@ -33,7 +33,7 @@ const STATE = {
   },
 };
 
-function fakeHass(state = STATE) {
+function fakeHass(state = STATE, overrides = {}) {
   const calls = [];
   const replies = {
     get_state: () => structuredClone(state),
@@ -63,6 +63,7 @@ function fakeHass(state = STATE) {
         note: null, kid_id: 1, day: "2026-10-08", late: true }],
     }),
     "parent/set_status": (m) => ({ instance: inst(m.instance_id, 1, "x", "afternoon", "expected", m.status) }),
+    ...overrides,
   };
   return {
     calls,
@@ -96,12 +97,12 @@ const click = (root, selector) => {
   el.click();
 };
 
-async function mount(state = STATE) {
+async function mount(state = STATE, overrides = {}) {
   // Each test starts with a fresh panel: drop earlier ones, and with them their focus
   // (happy-dom otherwise keeps pointing activeElement at a detached node).
   for (const old of mounted.splice(0)) old.remove();
   document.body.focus?.();
-  const hass = fakeHass(state);
+  const hass = fakeHass(state, overrides);
   const el = new ChoresPanel();
   el.hass = hass;
   document.body.appendChild(el);
@@ -318,6 +319,31 @@ test("a once-a-day extra another kid did is greyed out with who took it (AC-6.8,
   assert.ok(row.classList.contains("taken"));
   assert.ok(row.hasAttribute("disabled"), "can't be ticked");
   assert.ok(row.textContent.includes("Tatt av Ada"));
+});
+
+test("week view: next week, and a homework cell ahead is ticked through tick_ahead (AC-6.9, D52)", async () => {
+  const NEXT = "2026-10-12";
+  const days = [0, 1, 2, 3, 4, 5, 6].map((i) => `2026-10-${12 + i}`);
+  const nextWeek = { week: NEXT, week_status: null, days, balances: { 1: balance },
+    rows: [{ chore_id: 7, name: "Lekser", slot: "afternoon", type: "expected", can_tick_ahead: true,
+      cells: { [NEXT]: "pending" }, ids: { [NEXT]: null }, values: {} }] };
+  const { root, hass } = await mount(STATE, {
+    get_week: (m) => (m.week === NEXT ? nextWeek : { ...nextWeek, week: "2026-10-05", rows: [] }),
+    tick_ahead: (m) => ({ instance: { ...inst(70, 1, "Lekser", "afternoon", "expected", "done"), day: m.day } }),
+  });
+  click(root, '[data-action="kid"][data-kid="1"]');
+  await tick();
+  click(root, '[data-action="week-next"]');
+  await tick();
+  assert.equal(hass.calls.at(-1).week, NEXT);
+  click(root, 'table.week [data-action="toggle"][data-chore="7"]');
+  await tick();
+  assert.ok(root.querySelector(".dialog")?.textContent.includes("Lekser"), "confirm names the chore");
+  click(root, '[data-action="dialog-yes"]');
+  await tick();
+  assert.ok(
+    hass.calls.some((c) => c.type.endsWith("tick_ahead") && c.kid_id === 1 && c.chore_id === 7 && c.day === NEXT),
+  );
 });
 
 test("a currency with decimals shows 0,50 and the adjust form sends cents (AC-3.4, D50)", async () => {

@@ -1,5 +1,5 @@
 {
-  "_comment": "What a kid's tap does, shared by pytest (logic.transition) and node (panel.js kidTap). day: -1 = yesterday, 0 = today, 1 = tomorrow (same week). tap: tick | untick | null.",
+  "_comment": "What a kid's tap does, shared by pytest (logic.transition) and node (panel.js kidTap). day: offset from today, Friday 2026-10-09 (-1 = yesterday, 1 = Saturday, 3 = next Monday, 9 = next Sunday, the last day ahead). ahead: the chore can be ticked ahead (D52). tap: tick | untick | null.",
   "cases": [
     {"type": "expected", "status": "pending", "day": 0, "tap": "tick"},
     {"type": "expected", "status": "done", "day": 0, "tap": "untick"},
@@ -10,6 +10,11 @@
     {"type": "expected", "status": "excused", "day": 0, "tap": null},
     {"type": "bonus", "status": "pending", "day": -1, "tap": "tick"},
     {"type": "bonus", "status": "done", "day": -1, "tap": "untick"},
-    {"type": "expected", "status": "pending", "day": 1, "tap": null}
+    {"type": "expected", "status": "pending", "day": 1, "tap": null},
+    {"type": "expected", "status": "pending", "day": 1, "ahead": true, "tap": "tick"},
+    {"type": "expected", "status": "pending", "day": 9, "ahead": true, "tap": "tick"},
+    {"type": "expected", "status": "done", "day": 3, "ahead": true, "tap": "untick"},
+    {"type": "expected", "status": "rejected", "day": 3, "ahead": true, "tap": null},
+    {"type": "expected", "status": "pending", "day": 10, "ahead": true, "tap": null}
   ]
 }

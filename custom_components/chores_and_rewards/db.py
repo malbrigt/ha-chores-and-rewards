@@ -239,17 +239,19 @@ SELECT strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'), 'system', 'currency_save', 'c
 FROM currencies;
 """
 
-# v2: once-a-day extras (D51). Existing chores and rows default to off.
-_V2_ONCE_A_DAY = """
+# v2: once-a-day extras (D51) and ticking ahead (D52). Existing chores and rows default to off.
+_V2_CHORE_OPTIONS = """
 ALTER TABLE chores ADD COLUMN once_a_day INTEGER NOT NULL DEFAULT 0
     CHECK (once_a_day IN (0, 1));
 ALTER TABLE instances ADD COLUMN once_a_day INTEGER NOT NULL DEFAULT 0
     CHECK (once_a_day IN (0, 1));
+ALTER TABLE chores ADD COLUMN can_tick_ahead INTEGER NOT NULL DEFAULT 0
+    CHECK (can_tick_ahead IN (0, 1));
 """
 
 # Index i holds the script that upgrades schema version i to i + 1 (PRAGMA user_version).
 # Never edit a released entry; append a new one.
-MIGRATIONS: list[str] = [_SCHEMA, _V2_ONCE_A_DAY]
+MIGRATIONS: list[str] = [_SCHEMA, _V2_CHORE_OPTIONS]
 SCHEMA_VERSION = len(MIGRATIONS)
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -511,6 +513,7 @@ class Repo:
             "active": c.active,
             "sort": c.sort,
             "once_a_day": c.once_a_day,
+            "can_tick_ahead": c.can_tick_ahead,
         }
         chore_id = self._save("chores", c.id, fields)
         self._x("DELETE FROM chore_kids WHERE chore_id = ?", [chore_id])
@@ -673,6 +676,34 @@ class Repo:
             sql += f" AND kid_id NOT IN ({','.join('?' * len(keep))})"
         params = [chore_id, day.isoformat(), Status.PENDING, *keep]
         self._audit_deleted(self._x(sql + " RETURNING id, kid_id, day", params), by)
+
+    def future_instances(
+        self, after: date, *, chore_id: int | None = None, kid_id: int | None = None
+    ) -> list[Instance]:
+        """Rows for days after `after`: chores ticked ahead (D52)."""
+        where, params = _where(chore_id=chore_id, kid_id=kid_id)
+        where = f"{where} AND day > ?" if where else "WHERE day > ?"
+        return self._load_instances(where, [*params, after.isoformat()])
+
+    def delete_instance(self, instance_id: int, by: str | None = SYSTEM_USER) -> None:
+        rows = self._x(
+            "DELETE FROM instances WHERE id = ? RETURNING id, kid_id, day", [instance_id]
+        )
+        self._audit_deleted(rows, by)
+
+    def resnapshot(self, inst: Instance, chore: Chore, by: str | None = SYSTEM_USER) -> None:
+        """Copy the chore's current definition onto a stored row, keeping its status (D52)."""
+        if inst.id is None:
+            raise LookupError("instance is not stored")
+        fresh = snapshot(chore, inst.kid_id, inst.day)
+        self._x(
+            "UPDATE instances SET type = ?, slot = ?, name = ?, icon = ?, once_a_day = ?"
+            " WHERE id = ?",
+            [fresh.type.value, fresh.slot.value, fresh.name, fresh.icon, fresh.once_a_day, inst.id],
+        )
+        self._set_instance_values(inst.id, fresh.values)
+        updated = replace(fresh, id=inst.id, status=inst.status, currency_id=inst.currency_id)
+        self._audit_instance(AuditAction.INSTANCE_UPDATE, by, updated)
 
     def delete_pending_for_kid(self, kid_id: int, day: date, by: str | None = SYSTEM_USER) -> None:
         """Drop a kid's pending rows on a day, e.g. when the kid is deactivated."""
@@ -917,6 +948,7 @@ def _chore(r: sqlite3.Row, kid_ids: set[int], values: dict[int, int]) -> Chore:
         active=bool(r["active"]),
         sort=r["sort"],
         once_a_day=bool(r["once_a_day"]),
+        can_tick_ahead=bool(r["can_tick_ahead"]),
     )
 
 

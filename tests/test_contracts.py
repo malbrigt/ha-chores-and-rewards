@@ -53,16 +53,16 @@ def test_parent_actions_match_transition(case):
         if target == case["status"]:
             continue
         try:
-            transition(replace(inst), Status(target), Actor.PARENT, TODAY)
+            transition(replace(inst), Status(target), Actor.PARENT, TODAY, case.get("ahead", False))
         except RuleError:
             continue
         allowed.append(target)
     assert allowed == case["actions"]
 
 
-def _allowed(inst: Instance, target: Status) -> bool:
+def _allowed(inst: Instance, target: Status, ahead: bool) -> bool:
     try:
-        transition(inst, target, Actor.KID, TODAY)
+        transition(inst, target, Actor.KID, TODAY, ahead)
     except RuleError:
         return False
     return True
@@ -72,7 +72,8 @@ def _allowed(inst: Instance, target: Status) -> bool:
     "case", KID_FIXTURE["cases"], ids=lambda c: f"{c['type']}-{c['status']}-{c['day']}"
 )
 def test_kid_tap_matches_transition(case):
-    """panel.js kidTap is tested against the same fixture (tests/js)."""
+    """panel.js kidTap is tested against the same fixture (tests/js). AC-6.9 for ahead."""
+    ahead = case.get("ahead", False)
     inst = Instance(
         kid_id=1,
         chore_id=1,
@@ -85,9 +86,9 @@ def test_kid_tap_matches_transition(case):
         id=1,
     )
     if inst.status is Status.DONE:
-        tap = "untick" if _allowed(inst, undo_status(inst, TODAY)) else None
+        tap = "untick" if _allowed(inst, undo_status(inst, TODAY), ahead) else None
     else:
-        tap = "tick" if _allowed(inst, Status.DONE) else None
+        tap = "tick" if _allowed(inst, Status.DONE, ahead) else None
     assert tap == case["tap"]
 
 

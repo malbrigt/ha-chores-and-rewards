@@ -28,6 +28,9 @@ export const STRINGS = {
     error_taken: "Et annet barn har allerede gjort denne i dag.",
     taken_by: "Tatt av {name}",
     f_once_a_day: "Kun ett barn per dag (ekstraoppgaver)",
+    f_can_tick_ahead: "Kan krysses av på forhånd, ut neste uke (faste oppgaver)",
+    error_future_day: "Den dagen er ikke kommet ennå.",
+    error_not_scheduled: "Denne oppgaven er ikke satt opp den dagen.",
     f_decimals: "Desimaler (kan ikke endres senere)",
     back: "Tilbake",
     more_actions: "Flere valg for {name}",
@@ -195,6 +198,9 @@ export const STRINGS = {
     error_taken: "Another kid already did this one today.",
     taken_by: "Taken by {name}",
     f_once_a_day: "Only one kid per day (extras)",
+    f_can_tick_ahead: "Can be ticked ahead, through next week (expected chores)",
+    error_future_day: "That day hasn't come yet.",
+    error_not_scheduled: "This chore isn't scheduled that day.",
     f_decimals: "Decimals (can't be changed later)",
     back: "Back",
     more_actions: "More options for {name}",
@@ -436,9 +442,25 @@ export function dayNav(today, day) {
   return { prev: prev >= monday ? prev : null, next: next <= sunday ? next : null };
 }
 
-/** Status changes a parent may make (mirrors logic.transition, D19). */
+/** Last day a chore may be ticked ahead: Sunday of next week (mirrors logic.tick_ahead_until, D52). */
+export function tickAheadUntil(today) {
+  return addDays(mondayOf(today), 13);
+}
+
+/** A future day of a chore that may be ticked ahead, inside the window (D52). */
+function isAhead(inst, today) {
+  return inst.day > today && Boolean(inst.can_tick_ahead) && inst.day <= tickAheadUntil(today);
+}
+
+/** Status changes a parent may make (mirrors logic.transition, D19, D52). */
 export function parentActions(inst, today) {
-  if (!inst?.id || inst.day > today) return [];
+  if (!inst?.id) return [];
+  if (inst.day > today) {
+    // Ahead (D52): tick, reject or reset; a day that hasn't come can't be excused or missed.
+    if (!isAhead(inst, today)) return [];
+    if (inst.status === "done") return ["rejected", "pending"];
+    return inst.status === "rejected" ? ["done", "pending"] : ["done"];
+  }
   const isToday = inst.day === today;
   const out = [];
   if (inst.status !== "done") out.push("done");
@@ -449,9 +471,16 @@ export function parentActions(inst, today) {
   return out;
 }
 
-/** What a kid's tap does (mirrors logic.transition for kids, D8): tick, untick or nothing. */
+/** What a kid's tap does (mirrors logic.transition for kids, D8, D52): tick, untick or nothing. */
 export function kidTap(inst, today) {
-  if (!inst?.id || inst.day > today) return null;
+  if (!inst) return null;
+  if (inst.day > today) {
+    // Ahead (D52): an unsaved preview (no id) is ticked through tick_ahead.
+    if (!isAhead(inst, today)) return null;
+    if (inst.status === "done") return "untick";
+    return inst.status === "pending" ? "tick" : null;
+  }
+  if (!inst.id) return null;
   if (inst.status === "done") return "untick";
   if (inst.status === "pending" || inst.status === "missed") return "tick";
   return null; // excused / rejected: decided by a parent
@@ -1092,7 +1121,12 @@ export class ChoresPanel extends Base {
         state = await this._ws("get_state");
       }
       const week =
-        this._view.name === "week" ? await this._ws("get_week", { kid_id: this._view.kidId }) : null;
+        this._view.name === "week"
+          ? await this._ws("get_week", {
+              kid_id: this._view.kidId,
+              ...(this._view.next ? { week: addDays(mondayOf(state.today), 7) } : {}),
+            })
+          : null;
       if (seq !== this._reloadSeq) return;
       this._state = state;
       this._week = week;
@@ -1122,8 +1156,8 @@ export class ChoresPanel extends Base {
     await this._reload();
   }
 
-  async _openWeek(kidId) {
-    this._view = { name: "week", kidId };
+  async _openWeek(kidId, next = false) {
+    this._view = { name: "week", kidId, next }; // next: next week, for ticking ahead (D52)
     this._week = null;
     this._render();
     await this._reload();
@@ -1137,19 +1171,48 @@ export class ChoresPanel extends Base {
     return null;
   }
 
-  /** A minimal instance for a past week-grid cell (not in the day's board). */
+  /** A minimal instance for a week-grid cell (not in the day's board). */
   _weekInstance(id, day) {
     const row = this._week?.rows.find((r) => r.ids?.[day] === id);
-    if (!row) return null;
-    const values = row.values?.[day] ?? {};
-    return { id, day, type: row.type, status: row.cells[day], name: row.name, kid_id: this._view.kidId, values };
+    return row ? this._cellInstance(row, day) : null;
+  }
+
+  _cellInstance(row, day) {
+    return {
+      id: row.ids?.[day] ?? null,
+      day,
+      type: row.type,
+      status: row.cells[day],
+      name: row.name,
+      kid_id: this._view.kidId,
+      chore_id: row.chore_id,
+      can_tick_ahead: row.can_tick_ahead,
+      values: row.values?.[day] ?? {},
+    };
+  }
+
+  /** An unsaved future row (no id) that may be ticked ahead, from the board or week grid (D52). */
+  _previewInstance(kidId, choreId, day) {
+    const kid = this._state?.board?.[String(kidId)];
+    const onBoard = [...(kid?.chores ?? []), ...(kid?.bonus ?? [])].find(
+      (i) => !i.id && i.chore_id === choreId && i.day === day,
+    );
+    if (onBoard) return onBoard;
+    const row = this._view.kidId === kidId ? this._week?.rows.find((r) => r.chore_id === choreId) : null;
+    return row ? this._cellInstance(row, day) : null;
   }
 
   async _setDone(inst, done, currencyId = null) {
     try {
-      const payload = { instance_id: inst.id, done };
-      if (currencyId !== null) payload.currency_id = currencyId;
-      const { instance } = await this._ws("set_done", payload);
+      let instance;
+      if (!inst.id) {
+        // A day ticked ahead that has no row yet: the server creates it (D52).
+        ({ instance } = await this._ws("tick_ahead", { kid_id: inst.kid_id, chore_id: inst.chore_id, day: inst.day }));
+      } else {
+        const payload = { instance_id: inst.id, done };
+        if (currencyId !== null) payload.currency_id = currencyId;
+        ({ instance } = await this._ws("set_done", payload));
+      }
       this._replaceInstance(instance); // instant feedback; the update event reloads the rest
       this._render();
     } catch (err) {
@@ -1240,7 +1303,12 @@ export class ChoresPanel extends Base {
         this._view = { name: "overview" };
         this._week = null;
       },
-      toggle: () => this._toggle(id, el.dataset.confirm === "1", el.dataset.day),
+      toggle: () =>
+        el.dataset.chore
+          ? this._toggleInstance(this._previewInstance(Number(el.dataset.kid), Number(el.dataset.chore), el.dataset.day))
+          : this._toggle(id, el.dataset.confirm === "1", el.dataset.day),
+      "week-next": () => this._openWeek(this._view.kidId, true),
+      "week-this": () => this._openWeek(this._view.kidId),
       more: () => this._openSheet(id, el.dataset.day),
       "dialog-yes": () => {
         const { onYes } = this._dialog;
@@ -1328,7 +1396,10 @@ export class ChoresPanel extends Base {
   }
 
   _toggle(id, alwaysConfirm, day) {
-    const inst = this._findInstance(id) ?? this._weekInstance(id, day);
+    this._toggleInstance(this._findInstance(id) ?? this._weekInstance(id, day), alwaysConfirm);
+  }
+
+  _toggleInstance(inst, alwaysConfirm = false) {
     if (!inst || !kidTap(inst, this._state.today)) return;
     const done = inst.status !== "done";
     const options = done ? this._earnOptions(inst) : [];
@@ -1344,7 +1415,7 @@ export class ChoresPanel extends Base {
       return;
     }
     if (inst.day !== this._state.today) {
-      // A past day: always confirm, and say which day (D8).
+      // Another day (past, D8, or ahead, D52): always confirm, and say which day.
       const key = done ? "confirm_check_day" : "confirm_uncheck_day";
       const vars = { name: inst.name, day: shortDay(inst.day, this._lang) };
       this._dialog = { text: t(this._lang, key, vars), onYes: () => this._setDone(inst, done) };
@@ -1580,6 +1651,7 @@ export class ChoresPanel extends Base {
     const chore = this._admin.chores.find((c) => c.id === choreId) ?? {
       chore_type: "expected",
       once_a_day: false,
+      can_tick_ahead: false,
       slot: "afternoon",
       weekdays: [],
       kid_ids: [],
@@ -1627,6 +1699,7 @@ export class ChoresPanel extends Base {
         { key: "description", type: "text", label: t(L, "f_description") },
         { key: "sort", type: "number", label: t(L, "f_sort") },
         { key: "once_a_day", type: "bool", label: t(L, "f_once_a_day") },
+        { key: "can_tick_ahead", type: "bool", label: t(L, "f_can_tick_ahead") },
         { key: "active", type: "bool", label: t(L, "f_active") },
       ],
       values: {
@@ -1647,6 +1720,7 @@ export class ChoresPanel extends Base {
           sort: v.sort ?? 0,
           active: v.active,
           once_a_day: v.chore_type === "bonus" && Boolean(v.once_a_day), // extras only (D51)
+          can_tick_ahead: v.chore_type === "expected" && Boolean(v.can_tick_ahead), // D52
         });
         // AC-5.5: a warning only; the chore is saved.
         if (result.warnings.length) {
@@ -1771,7 +1845,8 @@ export class ChoresPanel extends Base {
         const week = this._week ? isoWeek(this._week.week) : isoWeek(s.today);
         title = html`<button class="icon-btn" data-action="back" aria-label="${t(L, "back")}">
             ${icon("mdi:arrow-left")}</button
-          ><span class="text">${kid?.name ?? ""} · ${t(L, "week", { n: week })}</span>`;
+          >${this._weekArrow(false)}<span class="text">${kid?.name ?? ""} · ${t(L, "week", { n: week })}</span
+          >${this._weekArrow(true)}`;
         body = this._renderWeek();
       } else if (this._parent && this._tab !== "today") {
         title = html`<span class="text">${t(L, `tab_${this._tab}`)}</span>`;
@@ -1902,11 +1977,18 @@ export class ChoresPanel extends Base {
     const takenName = taken ? this._state.kids.find((k) => k.id === inst.taken_by)?.name : null;
     const earned = taken ? html`<span class="earned">${t(L, "taken_by", { name: takenName ?? "?" })}</span>` : this._earnedTag(inst);
     return html`<div class="row">
-      <button class="chore ${inst.status}${taken ? " taken" : ""}" data-action="toggle" data-id="${inst.id}" role="checkbox"
+      <button class="chore ${inst.status}${taken ? " taken" : ""}" data-action="toggle" ${this._target(inst)} role="checkbox"
         aria-checked="${inst.status === "done" ? "true" : "false"}" ${tappable ? "" : raw("disabled")}>
         <span class="box" aria-hidden="true">${box}</span><span>${inst.name}</span>${earned}${late}
       </button>${more}
     </div>`;
+  }
+
+  /** data-* that finds an instance again: its id, or kid + chore + day for a preview (D52). */
+  _target(inst) {
+    return inst.id
+      ? html`data-id="${inst.id}" data-day="${inst.day}"`
+      : html`data-kid="${inst.kid_id}" data-chore="${inst.chore_id}" data-day="${inst.day}"`;
   }
 
   /** "+10 min" on a done extra chore: the currency the kid picked (D49). */
@@ -1938,6 +2020,15 @@ export class ChoresPanel extends Base {
     });
   }
 
+  /** ‹ › between this week and next week, to tick chores ahead (D52); like the day header. */
+  _weekArrow(next) {
+    const L = this._lang;
+    const enabled = next !== Boolean(this._view.next);
+    return html`<button class="icon-btn" data-action="${next ? "week-next" : "week-this"}"
+      aria-label="${t(L, next ? "next_week" : "prev_week")}" ${enabled ? "" : raw("disabled")}
+      >${icon(next ? "mdi:chevron-right" : "mdi:chevron-left")}</button>`;
+  }
+
   _renderWeek() {
     const L = this._lang;
     const w = this._week;
@@ -1946,7 +2037,7 @@ export class ChoresPanel extends Base {
     // Today's cells come from the day's board; past cells from the grid (D34, D8).
     const kidBoard = this._state.board[String(this._view.kidId)] ?? { chores: [], bonus: [] };
     const todayByChore = new Map([...kidBoard.chores, ...kidBoard.bonus].map((i) => [i.chore_id, i]));
-    const open = w.week_status === "open";
+    const open = w.week_status !== "closed"; // next week may have no row yet (D52)
     const head = w.days.map(
       (d) => html`<th class="${d === today ? "today" : ""}" scope="col" aria-label="${shortDay(d, L)}">${weekdayLetter(d, L)}</th>`,
     );
@@ -1958,14 +2049,15 @@ export class ChoresPanel extends Base {
         const late = this._parent && r.late?.[d] ? html`<span class="late">${icon("mdi:alert")}</span>` : "";
         const todays = d === today ? todayByChore.get(r.chore_id) : null;
         const id = todays?.id ?? r.ids?.[d];
-        const inst = todays ?? (id ? { id, day: d, status, type: r.type } : null);
+        const inst = todays ?? (id || (d > today && status) ? this._cellInstance(r, d) : null);
         let action = null;
-        if (inst && open && d === today && kidTap(inst, today)) action = html`data-action="toggle" data-confirm="1"`;
+        if (inst && open && d > today && kidTap(inst, today)) action = html`data-action="toggle"`;
+        else if (inst && open && d === today && kidTap(inst, today)) action = html`data-action="toggle" data-confirm="1"`;
         else if (inst && open && d < today && this._parent) action = html`data-action="more"`;
         else if (inst && open && d < today && kidTap(inst, today)) action = html`data-action="toggle"`;
         const symbol = cellSymbol(inst?.status ?? status);
         if (action) {
-          return html`<td class="${cls}"><button ${action} data-id="${id}" data-day="${d}" aria-label="${label}">
+          return html`<td class="${cls}"><button ${action} ${this._target(inst)} aria-label="${label}">
               ${symbol}${late}</button></td>`;
         }
         return html`<td class="${cls}" aria-label="${label}">${status ? symbol : ""}${late}</td>`;

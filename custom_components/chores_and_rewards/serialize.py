@@ -38,6 +38,7 @@ def chore_json(c: Chore) -> dict[str, Any]:
         "active": c.active,
         "sort": c.sort,
         "once_a_day": c.once_a_day,
+        "can_tick_ahead": c.can_tick_ahead,
     }
 
 

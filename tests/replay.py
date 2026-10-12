@@ -51,8 +51,13 @@ def replay(entries: list[dict[str, Any]]) -> dict[str, Any]:
         elif action is A.CURRENCY_SAVE:
             st["currencies"][eid] = {**_without_id(after), "deleted": False}
         elif action is A.CHORE_SAVE:
-            # Rows logged before schema v2 have no once_a_day (D51).
-            st["chores"][eid] = {"once_a_day": False, **_without_id(after), "deleted": False}
+            # Rows logged before schema v2 have neither option (D51, D52).
+            st["chores"][eid] = {
+                "once_a_day": False,
+                "can_tick_ahead": False,
+                **_without_id(after),
+                "deleted": False,
+            }
         elif action is A.SETTINGS_SAVE:
             st["settings"] = after
         elif action in (A.WEEK_OPEN, A.REOPEN_WEEK):

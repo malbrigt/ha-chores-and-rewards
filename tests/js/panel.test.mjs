@@ -147,6 +147,7 @@ test("parentActions mirrors logic.transition (D19)", async () => {
   ]);
   assert.deepEqual(parentActions(inst({ type: "bonus", day: "2026-10-08" }), today), ["done", "excused"]);
   assert.deepEqual(parentActions(inst({ day: "2026-10-10" }), today), []); // future
+  assert.deepEqual(parentActions(inst({ day: "2026-10-10", can_tick_ahead: true }), today), ["done"]); // D52
   assert.deepEqual(parentActions(inst({ id: null }), today), []); // preview
 });
 
@@ -170,7 +171,7 @@ test("parentActions matches the shared fixture used by the Python tests", async 
   const fixture = JSON.parse(readFileSync(new URL("../fixtures/parent_actions.json", import.meta.url)));
   const today = "2026-10-09";
   for (const c of fixture.cases) {
-    const inst = { id: 1, type: c.type, status: c.status, day: addDays(today, c.day) };
+    const inst = { id: 1, type: c.type, status: c.status, day: addDays(today, c.day), can_tick_ahead: c.ahead };
     assert.deepEqual(parentActions(inst, today), c.actions, JSON.stringify(c));
   }
 });
@@ -180,10 +181,13 @@ test("kidTap matches the shared fixture used by the Python tests (D8)", async ()
   const fixture = JSON.parse(readFileSync(new URL("../fixtures/kid_actions.json", import.meta.url)));
   const today = "2026-10-09";
   for (const c of fixture.cases) {
-    const inst = { id: 1, type: c.type, status: c.status, day: addDays(today, c.day) };
+    const inst = { id: 1, type: c.type, status: c.status, day: addDays(today, c.day), can_tick_ahead: c.ahead };
     assert.equal(kidTap(inst, today), c.tap, JSON.stringify(c));
   }
   assert.equal(kidTap({ id: null, status: "pending", day: today }, today), null); // preview
+  // A future preview of a chore that can be ticked ahead is tapped through tick_ahead (D52).
+  const ahead = { id: null, status: "pending", day: addDays(today, 3), can_tick_ahead: true };
+  assert.equal(kidTap(ahead, today), "tick");
 });
 
 test("LOG_GROUPS covers every audited action with a label", async () => {

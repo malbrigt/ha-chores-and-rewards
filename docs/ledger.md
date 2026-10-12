@@ -551,3 +551,10 @@ The panel URL was `panel.js?v=<version>`. Going back to 0.1.0 reused an old URL,
 - The chore form always shows the toggle (forms have no per-type fields); the panel only sends it for extras.
 - Seed: "Vacuum the mudroom" and a new "Set the table" are once a day. E2E: Bo sets the table, Ada's row shows "Taken by Bo" (`10-taken.png`).
 - Follow-up: removed the dashed line above "Extra"; the last chore row's own divider already separates it.
+
+## Step 18: tick ahead (user request)
+- **Rule (D52):** an expected chore may allow ticking ahead, up to Sunday of next week. `tick_ahead` creates the future row (snapshot) and ticks it, both audited. Future rows follow the chore (re-snapshot, or deleted when no longer allowed or scheduled), and the rollover keeps them.
+- **Found while building:** `week_pot` added the schedule on top of every stored row, so a future row would have counted twice; `board()` showed only stored rows for a future day once any existed, hiding the rest of the preview. Both now lay stored rows over the schedule.
+- `can_tick_ahead` went into the unreleased v2 migration instead of a separate v3.
+- Panel: future cells/rows of these chores are tappable (with a dated confirm); a kid's week view has a next-week arrow. `kidTap`/`parentActions` mirror the future-day rules via the shared fixtures.
+- **Found while building (E2E flake):** HA's service worker takes control a few seconds after a fresh browser context first loads, and HA then calls `location.reload()`. A tablet could reset to the overview mid-test. E2E contexts now block service workers.

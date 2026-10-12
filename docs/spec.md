@@ -35,11 +35,12 @@ Name, plus an optional **weekly maximum** per currency.
 
 ## 5. Chores (in a database, parent-managed)
 
-Fields: name, icon, description; type (expected/bonus); assigned kids; weekdays; time of day (morning/afternoon/anytime); value per currency (zero or more); once a day (extras only); active.
+Fields: name, icon, description; type (expected/bonus); assigned kids; weekdays; time of day (morning/afternoon/anytime); value per currency (zero or more); once a day (extras only); can be ticked ahead (expected only); active.
 
 **Expected**
 - Shown each scheduled day in their slot. Mostly afternoon, a few morning.
 - Done = earns its value. Not done by midnight = missed.
+- **Tick ahead** (optional per chore, e.g. homework): can be ticked on a future day up to the end of next week, so a week's homework done on Monday, or at the weekend, can be ticked at once.
 
 **Bonus**
 - Allowance-focused; earns up to the weekly maximum.

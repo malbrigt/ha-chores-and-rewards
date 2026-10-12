@@ -65,6 +65,7 @@ def async_register(hass: HomeAssistant) -> None:
         ws_get_state,
         ws_get_week,
         ws_set_done,
+        ws_tick_ahead,
         ws_pin_unlock,
         ws_pin_status,
         ws_pin_lock,
@@ -183,6 +184,7 @@ async def ws_get_state(
     week = week_start(day)
 
     def read(repo: Repo) -> dict[str, Any]:
+        ahead = {c.id for c in repo.list_chores() if c.can_tick_ahead}  # D52
         return {
             "today": today.isoformat(),
             "day": day.isoformat(),
@@ -194,7 +196,10 @@ async def ws_get_state(
             "settings": repo.get_settings(),
             "board": {
                 str(kid_id): {
-                    "chores": [instance_out(i) for i in data.chores],
+                    "chores": [
+                        {**instance_out(i), "can_tick_ahead": i.chore_id in ahead}
+                        for i in data.chores
+                    ],
                     "bonus": [
                         {**instance_out(i), "taken_by": data.taken.get(i.id or 0)}
                         for i in data.bonus
@@ -225,6 +230,7 @@ async def ws_get_week(
 
     def read(repo: Repo) -> dict[str, Any]:
         require(repo.get_kid(kid_id))
+        ahead = {c.id for c in repo.list_chores() if c.can_tick_ahead}  # D52
         return {
             "week": week.isoformat(),
             "week_status": repo.week_status(week),
@@ -232,6 +238,7 @@ async def ws_get_week(
             "rows": [
                 {
                     "chore_id": r["chore_id"],
+                    "can_tick_ahead": r["chore_id"] in ahead,
                     "name": r["name"],
                     "type": r["type"].value,
                     "slot": r["slot"].value,
@@ -243,7 +250,7 @@ async def ws_get_week(
                         for d, i in r["days"].items()
                     },
                 }
-                for r in week_grid(repo, kid_id, week)
+                for r in week_grid(repo, kid_id, week, today)
             ],
             "balances": balances_json(kid_balances(repo, kid_id, week, today)),
         }
@@ -270,6 +277,30 @@ async def ws_set_done(
         instance_id=msg["instance_id"],
         done=msg["done"],
         currency_id=msg.get("currency_id"),
+    )
+    return {"instance": instance_out(await store.async_write(run))}
+
+
+@command(
+    {
+        vol.Required("type"): P + "tick_ahead",
+        vol.Required("kid_id"): int,
+        vol.Required("chore_id"): int,
+        vol.Required("day"): cv.date,
+    },
+    parent=False,
+)
+async def ws_tick_ahead(
+    hass: HomeAssistant, connection: ActiveConnection, msg: Msg, store: ChoresStore
+) -> dict[str, Any]:
+    """AC-6.9, D52: tick a future day of a chore that allows it (the row is created)."""
+    await store.async_ensure_current()
+    run = partial(
+        actions.tick_ahead,
+        ctx=_ctx(connection, store),
+        kid_id=msg["kid_id"],
+        chore_id=msg["chore_id"],
+        day=msg["day"],
     )
     return {"instance": instance_out(await store.async_write(run))}
 
@@ -429,6 +460,7 @@ async def ws_currency_delete(
         vol.Optional("active", default=True): bool,
         vol.Optional("sort", default=0): int,
         vol.Optional("once_a_day", default=False): bool,
+        vol.Optional("can_tick_ahead", default=False): bool,
     }
 )
 async def ws_chore_save(
@@ -448,6 +480,7 @@ async def ws_chore_save(
         active=msg["active"],
         sort=msg["sort"],
         once_a_day=msg["once_a_day"],
+        can_tick_ahead=msg["can_tick_ahead"],
     )
     run = partial(actions.save_chore, ctx=_ctx(connection, store), chore=chore)
     chore_id, warnings = await store.async_write(run)

@@ -1,7 +1,7 @@
 """Domain rules in logic.py. Pure: no hass fixture needed."""
 
 from dataclasses import replace
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -25,6 +25,7 @@ from custom_components.chores_and_rewards.logic import (
     resolve_cap,
     snapshot,
     taken_by,
+    tick_ahead_until,
     transition,
     undo_status,
     week_days,
@@ -318,6 +319,24 @@ def test_week_pot_uses_snapshots_then_schedule():
     other_kid = inst(kid=11)
     pot = week_pot([*old, other_kid], [DISHES, WINDOWS], 10, MON, TUE, currency_id=2)
     assert pot == 5 + 5 + 3 * 10 + 50
+
+
+def test_week_pot_counts_a_row_ticked_ahead_once():
+    """D52: a future day with a stored row uses the row, not the schedule as well."""
+    thu = MON + timedelta(days=3)
+    early = replace(inst(DISHES, day=thu), status=Status.DONE)
+    assert week_pot([early], [DISHES], 10, MON, TUE, currency_id=2) == 3 * 10
+
+
+def test_tick_ahead_window_and_untick():
+    """AC-6.9, D52: up to Sunday of next week; a future untick is pending again."""
+    assert tick_ahead_until(MON) == tick_ahead_until(MON + timedelta(days=6)) == MON + timedelta(13)
+    future = replace(inst(DISHES, day=TUE), status=Status.DONE)
+    assert undo_status(future, MON) is Status.PENDING
+    with pytest.raises(RuleError, match="future_day"):
+        transition(future, Status.EXCUSED, Actor.PARENT, MON, can_tick_ahead=True)
+    with pytest.raises(RuleError, match="future_day"):
+        transition(future, Status.PENDING, Actor.KID, MON)  # chore doesn't allow it
 
 
 # --- payout -------------------------------------------------------------------

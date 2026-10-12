@@ -120,6 +120,7 @@ class Chore:
     active: bool = True
     sort: int = 0
     once_a_day: bool = False  # extras only: the first kid to do it takes it that day (D51)
+    can_tick_ahead: bool = False  # expected only: may be ticked on a future day (D52)
 
 
 @dataclass(frozen=True)
@@ -170,6 +171,11 @@ def week_start(day: date) -> date:
 def week_days(start: date) -> list[date]:
     """The 7 dates Monday..Sunday from a week start."""
     return [start + timedelta(days=i) for i in range(7)]
+
+
+def tick_ahead_until(today: date) -> date:
+    """Last day a chore may be ticked ahead: Sunday of next week (D52)."""
+    return week_start(today) + timedelta(days=13)
 
 
 def days_to_finalize(last_finalized: date | None, today: date) -> list[date]:
@@ -257,8 +263,8 @@ def finalize(inst: Instance) -> Instance:
 
 
 def undo_status(inst: Instance, today: date) -> Status:
-    """What a done chore becomes when unticked: open today (or bonus), else missed again."""
-    if inst.day == today or inst.type is ChoreType.BONUS:
+    """What a done chore becomes when unticked: open today, ahead or bonus, else missed again."""
+    if inst.day >= today or inst.type is ChoreType.BONUS:
         return Status.PENDING
     return Status.MISSED
 
@@ -268,16 +274,24 @@ def is_late(day: date, changed_on: date) -> bool:
     return changed_on > day
 
 
-def transition(inst: Instance, target: Status, actor: Actor, today: date) -> Instance:
+def transition(
+    inst: Instance, target: Status, actor: Actor, today: date, can_tick_ahead: bool = False
+) -> Instance:
     """Apply a status change if the rules allow it, else raise RuleError.
 
     Both kids and parents: any day up to today in the open week (D8).
     Kids: tick (pending/missed → done) or untick (done → undo_status) (AC-6.1, AC-6.2).
     Parents: also excuse, reject a completion (AC-7.4), reset today or mark a past day missed.
+    Ahead (D52): a chore that allows it may be ticked, unticked, rejected or reset on a
+    future day up to `tick_ahead_until`; nothing else happens to a day that hasn't come.
     """
-    if inst.day > today:
+    if inst.day > today and not (
+        can_tick_ahead
+        and inst.day <= tick_ahead_until(today)
+        and target in (Status.DONE, Status.REJECTED, Status.PENDING)
+    ):
         raise RuleError("future_day")
-    if week_start(inst.day) != week_start(today):
+    if week_start(inst.day) < week_start(today):
         raise RuleError("week_closed")
 
     if actor is Actor.KID:
@@ -289,7 +303,7 @@ def transition(inst: Instance, target: Status, actor: Actor, today: date) -> Ins
 
     if target is Status.REJECTED and inst.status is not Status.DONE:
         raise RuleError("not_done")
-    if target is Status.PENDING and inst.day != today:
+    if target is Status.PENDING and inst.day < today:
         raise RuleError("not_today")
     if target is Status.MISSED and (inst.type is ChoreType.BONUS or inst.day == today):
         raise RuleError("not_allowed")
@@ -314,15 +328,18 @@ def week_pot(
     today: date,
     currency_id: int,
 ) -> int:
-    """Sum of values on offer this week: snapshots up to today, schedule for later days."""
-    total = sum(_value(i, currency_id) for i in instances if i.kid_id == kid_id)
+    """Sum of values on offer this week: stored rows (snapshots, and chores ticked ahead,
+    D52), plus the schedule for later days that have no row yet."""
+    mine = [i for i in instances if i.kid_id == kid_id]
+    total = sum(_value(i, currency_id) for i in mine)
+    stored = {(i.chore_id, i.day) for i in mine}
     chore_list = list(chores)
     for day in week_days(week):
         if day > today:
             total += sum(
                 chore.values.get(currency_id, 0)
                 for chore in chore_list
-                if is_scheduled(chore, kid_id, day)
+                if is_scheduled(chore, kid_id, day) and (chore.id, day) not in stored
             )
     return total
 

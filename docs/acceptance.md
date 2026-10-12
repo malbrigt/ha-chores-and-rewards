@@ -30,6 +30,7 @@ IDs follow the spec sections. Tests reference these IDs.
 - AC-6.6 WHEN a kid ticks an extra chore THEN it earns one currency: a can't-be-lost currency (payment) is always on offer, a can-be-lost one only while the kid has lost some this week. WHEN there are two options THEN the kid picks; WHEN one THEN no question (D49).
 - AC-6.7 WHEN an extra chore refills a lost currency THEN the balance rises by at most what was lost, and never above the cap (D49).
 - AC-6.8 WHEN one kid has done a once-a-day extra THEN the other kids see it greyed out as taken by that kid and can't tick it (nor can a parent mark it done); untick or reject frees it (D51).
+- AC-6.9 WHEN a chore allows ticking ahead THEN a kid can tick it on any scheduled future day up to the end of next week; it counts in that day's week, follows later edits of the chore, and stays done when the day comes (D52).
 
 ## §7 PIN
 - AC-7.1 WHEN the correct PIN is given THEN a session opens that expires after 5 min idle.

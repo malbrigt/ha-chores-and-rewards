@@ -527,7 +527,7 @@ def test_instance_ids_are_never_reused(db):
 
 
 def test_v1_database_upgrades_keeping_data(tmp_path, monkeypatch):
-    """AC-11.1, D51: a live v0.1.0 file migrates to once-a-day extras, data kept, backed up."""
+    """AC-11.1, D51, D52: a live v0.1.0 file migrates to the new chore options, data kept."""
     path = tmp_path / "chores.db"
     monkeypatch.setattr(dbmod, "MIGRATIONS", dbmod.MIGRATIONS[:1])
     monkeypatch.setattr(dbmod, "SCHEMA_VERSION", 1)
@@ -549,7 +549,8 @@ def test_v1_database_upgrades_keeping_data(tmp_path, monkeypatch):
     db = Database(path)
     assert db.migrate() == SCHEMA_VERSION == 2
     assert Database(tmp_path / "chores.db.bak-v1").schema_version() == 1
-    assert [(c.name, c.once_a_day) for c in db.run(lambda r: r.list_chores())] == [("Dust", False)]
+    chores = db.run(lambda r: r.list_chores())
+    assert [(c.name, c.once_a_day, c.can_tick_ahead) for c in chores] == [("Dust", False, False)]
     assert [(i.name, i.once_a_day) for i in db.run(lambda r: r.list_instances())] == [
         ("Dust", False)
     ]

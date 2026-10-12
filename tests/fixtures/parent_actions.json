@@ -1,5 +1,5 @@
 {
-  "_comment": "Shared by pytest (logic.transition) and node (panel.js parentActions) so the UI never offers an action the server refuses. day: -1 = yesterday, 0 = today (same week).",
+  "_comment": "Shared by pytest (logic.transition) and node (panel.js parentActions) so the UI never offers an action the server refuses. day: offset from today, Friday 2026-10-09 (-1 = yesterday, 3 = next Monday, 10 = past the window). ahead: the chore can be ticked ahead (D52).",
   "order": ["done", "excused", "rejected", "pending", "missed"],
   "cases": [
     {"type": "expected", "status": "pending", "day": 0, "actions": ["done", "excused"]},
@@ -11,6 +11,11 @@
     {"type": "expected", "status": "rejected", "day": -1, "actions": ["done", "excused", "missed"]},
     {"type": "bonus", "status": "pending", "day": -1, "actions": ["done", "excused"]},
     {"type": "bonus", "status": "done", "day": 0, "actions": ["excused", "rejected", "pending"]},
-    {"type": "bonus", "status": "rejected", "day": -1, "actions": ["done", "excused"]}
+    {"type": "bonus", "status": "rejected", "day": -1, "actions": ["done", "excused"]},
+    {"type": "expected", "status": "pending", "day": 1, "actions": []},
+    {"type": "expected", "status": "pending", "day": 1, "ahead": true, "actions": ["done"]},
+    {"type": "expected", "status": "done", "day": 3, "ahead": true, "actions": ["rejected", "pending"]},
+    {"type": "expected", "status": "rejected", "day": 3, "ahead": true, "actions": ["done", "pending"]},
+    {"type": "expected", "status": "done", "day": 10, "ahead": true, "actions": []}
   ]
 }

@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
-from .ws_helpers import chore, err, kid_board, midnight, ok, unlock
+from .ws_helpers import call, chore, err, kid_board, midnight, ok, unlock
 
 pytestmark = pytest.mark.freeze_time("2026-10-12 08:00:00+00:00")  # Mon 10:00 Oslo
 OSLO = ZoneInfo("Europe/Oslo")
@@ -319,3 +319,105 @@ async def test_once_a_day_extra_goes_to_the_first_kid(ws):
     assert (await row(ada, "Dust"))["taken_by"] == bo
     await ok(ws, "set_done", instance_id=bo_dust["id"], done=False)
     assert (await row(ada, "Dust"))["taken_by"] is None
+
+
+async def _homework(ws, **kw):
+    """Ada with Homework (Mon–Fri, 20 min) that can be ticked ahead (D52)."""
+    token = await unlock(ws)
+    ada = (await ok(ws, "admin/kid/save", token=token, name="Ada", max={SCREEN: 300}))["id"]
+    hw = chore([ada], name="Homework", values={SCREEN: 20}, can_tick_ahead=True, **kw)
+    hw_id = (await ok(ws, "admin/chore/save", token=token, **hw))["id"]
+    return token, ada, hw, hw_id
+
+
+async def test_tick_ahead_creates_the_row_and_counts_in_its_own_week(ws):
+    """AC-6.9, D52: homework done Monday can be ticked for the rest of this and next week."""
+    _, ada, _, hw = await _homework(ws)
+
+    async def ahead(day):
+        return await call(ws, "tick_ahead", kid_id=ada, chore_id=hw, day=day)
+
+    tue = await ok(ws, "tick_ahead", kid_id=ada, chore_id=hw, day="2026-10-13")
+    assert (tue["instance"]["day"], tue["instance"]["status"]) == ("2026-10-13", "done")
+    assert (await kid_board(ws, ada))["balances"][SCREEN]["earned"] == 20  # counts now
+    nxt = await ok(ws, "tick_ahead", kid_id=ada, chore_id=hw, day="2026-10-23")  # next Friday
+    assert (await kid_board(ws, ada))["balances"][SCREEN]["earned"] == 20  # not this week
+    week = await ok(ws, "get_week", kid_id=ada, week="2026-10-19")
+    assert week["balances"][SCREEN]["earned"] == 20
+    assert week["week_status"] == "open"
+
+    for day, code in [
+        ("2026-10-12", "future_day"),  # today: a normal tap
+        ("2026-10-26", "future_day"),  # past next week
+        ("2026-10-17", "not_scheduled"),  # Saturday
+    ]:
+        assert (await ahead(day))["error"]["code"] == code, day
+
+    # Untick goes back to pending (not missed); ticking ahead again reuses the row.
+    res = await ok(ws, "set_done", instance_id=tue["instance"]["id"], done=False)
+    assert res["instance"]["status"] == "pending"
+    again = await ok(ws, "tick_ahead", kid_id=ada, chore_id=hw, day="2026-10-13")
+    assert again["instance"]["id"] == tue["instance"]["id"]
+
+    # The board for Wednesday and the week grid show unsaved previews to tick.
+    wed = (await kid_board(ws, ada, day="2026-10-14"))["chores"]
+    assert [(i["name"], i["id"], i["can_tick_ahead"]) for i in wed] == [("Homework", None, True)]
+    grid = (await ok(ws, "get_week", kid_id=ada))["rows"][0]
+    assert grid["can_tick_ahead"] and grid["ids"]["2026-10-14"] is None
+    assert (grid["cells"]["2026-10-13"], grid["cells"]["2026-10-14"]) == ("done", "pending")
+    assert nxt["instance"]["status"] == "done"
+
+
+async def test_tick_ahead_refusals(ws):
+    """AC-6.9, D52: only expected chores with the setting can be ticked ahead."""
+    token, ada, _, _ = await _homework(ws)
+    plain = (await ok(ws, "admin/chore/save", token=token, **chore([ada], name="Dishes")))["id"]
+    err_ = await call(ws, "tick_ahead", kid_id=ada, chore_id=plain, day="2026-10-13")
+    assert err_["error"]["code"] == "future_day"
+    extra = chore([ada], name="Trash", chore_type="bonus", slot="anytime", can_tick_ahead=True)
+    assert await err(ws, "admin/chore/save", token=token, **extra) == "not_allowed"
+
+
+async def test_rows_ticked_ahead_follow_the_chore(ws):
+    """D52: a day that hasn't come follows chore edits; the rollover keeps the tick."""
+    token, ada, hw, hw_id = await _homework(ws)
+    for day in ("2026-10-13", "2026-10-14", "2026-10-20"):
+        await ok(ws, "tick_ahead", kid_id=ada, chore_id=hw_id, day=day)
+
+    # Renamed: the future rows follow and stay done.
+    await ok(ws, "admin/chore/save", token=token, chore_id=hw_id, **{**hw, "name": "Lekser"})
+    week = await ok(ws, "get_week", kid_id=ada)
+    assert [(r["name"], r["cells"].get("2026-10-14")) for r in week["rows"]] == [("Lekser", "done")]
+    # Wednesday dropped from the schedule: that tick goes, the others stay.
+    await ok(
+        ws,
+        "admin/chore/save",
+        token=token,
+        chore_id=hw_id,
+        **{**hw, "name": "Lekser", "weekdays": [0, 1, 3, 4]},
+    )
+    cells = (await ok(ws, "get_week", kid_id=ada))["rows"][0]["cells"]
+    assert ("2026-10-13" in cells, "2026-10-14" in cells) == (True, False)
+    # Setting turned off: no more rows ahead.
+    await ok(
+        ws,
+        "admin/chore/save",
+        token=token,
+        chore_id=hw_id,
+        **{**hw, "name": "Lekser", "can_tick_ahead": False},
+    )
+    nxt = await ok(ws, "get_week", kid_id=ada, week="2026-10-19")
+    assert nxt["rows"] == []
+    log = await ws.entry.runtime_data.async_read(
+        lambda r: r.list_audit(actions=["instance_delete"])
+    )
+    assert len(log) == 3  # Wednesday, Tuesday and next Tuesday, each audited (D46)
+
+
+async def test_tick_ahead_survives_midnight(hass, ws, freezer):
+    """D52: when the day comes the done row is kept, never marked missed."""
+    _, ada, _, hw_id = await _homework(ws)
+    await ok(ws, "tick_ahead", kid_id=ada, chore_id=hw_id, day="2026-10-13")
+    await midnight(hass, freezer, 14)  # Monday and Tuesday are finalized
+    cells = (await ok(ws, "get_week", kid_id=ada))["rows"][0]["cells"]
+    assert (cells["2026-10-12"], cells["2026-10-13"]) == ("missed", "done")

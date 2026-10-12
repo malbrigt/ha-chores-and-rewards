@@ -32,7 +32,9 @@ from .logic import (
     is_late,
     is_scheduled,
     payout_warnings,
+    snapshot,
     taken_by,
+    tick_ahead_until,
     transition,
     undo_status,
     week_start,
@@ -110,6 +112,12 @@ def _require_free(repo: Repo, inst: Instance, status: Status) -> None:
         raise RuleError("taken")
 
 
+def _can_tick_ahead(repo: Repo, inst: Instance) -> bool:
+    """Future rows follow the chore's current setting, not a snapshot (D52)."""
+    chore = repo.get_chore(inst.chore_id)
+    return chore is not None and chore.can_tick_ahead
+
+
 def set_done(
     repo: Repo, ctx: Ctx, instance_id: int, done: bool, currency_id: int | None = None
 ) -> Instance:
@@ -120,7 +128,7 @@ def set_done(
     inst = require(repo.get_instance(instance_id))
     _require_open(repo, week_start(inst.day))
     target = Status.DONE if done else undo_status(inst, ctx.today)
-    new = transition(inst, target, Actor.KID, ctx.today)
+    new = transition(inst, target, Actor.KID, ctx.today, _can_tick_ahead(repo, inst))
     _require_free(repo, inst, target)
     new = replace(new, currency_id=_earns(repo, ctx, inst, target, currency_id))
     action = AuditAction.CHECK if done else AuditAction.UNCHECK
@@ -133,10 +141,30 @@ def set_status(
     """Parent: reject, mark done/excused/missed, or reset today (AC-7.4, AC-7.5, D19)."""
     inst = require(repo.get_instance(instance_id))
     _require_open(repo, week_start(inst.day))
-    new = transition(inst, status, Actor.PARENT, ctx.today)
+    new = transition(inst, status, Actor.PARENT, ctx.today, _can_tick_ahead(repo, inst))
     _require_free(repo, inst, status)
     new = replace(new, currency_id=_earns(repo, ctx, inst, status, currency_id))
     return _record_status(repo, AuditAction.SET_STATUS, ctx, inst, new, status_by=ctx.by)
+
+
+def tick_ahead(repo: Repo, ctx: Ctx, kid_id: int, chore_id: int, day: date) -> Instance:
+    """Kid ticks a future day of a chore that allows it, e.g. the week's homework (D52).
+
+    A day that hasn't come has no row yet: it is created here (a snapshot, D6), then
+    ticked like any other, so both steps are audited.
+    """
+    chore = require(repo.get_chore(chore_id))
+    kid = require(repo.get_kid(kid_id))
+    if not chore.can_tick_ahead or not ctx.today < day <= tick_ahead_until(ctx.today):
+        raise RuleError("future_day")
+    if not kid.active or not is_scheduled(chore, kid_id, day):
+        raise RuleError("not_scheduled")
+    week = week_start(day)
+    repo.ensure_week(week, by=ctx.by)
+    _require_open(repo, week)
+    repo.insert_instances([snapshot(chore, kid_id, day)], by=ctx.by)  # no-op if it exists
+    (inst,) = [i for i in repo.list_instances(day=day, kid_id=kid_id) if i.chore_id == chore_id]
+    return set_done(repo, ctx, require(inst.id), True)
 
 
 # --- Admin ---------------------------------------------------------------------------
@@ -217,6 +245,8 @@ def save_chore(repo: Repo, ctx: Ctx, chore: Chore) -> tuple[int, list[int]]:
         raise NotFound
     if chore.once_a_day and chore.type is not ChoreType.BONUS:
         raise RuleError("not_allowed")  # an expected chore is every kid's own (D51)
+    if chore.can_tick_ahead and chore.type is not ChoreType.EXPECTED:
+        raise RuleError("not_allowed")  # an extra earns from that week's balance (D49, D52)
     before = chore_json(require(repo.get_chore(chore.id))) if chore.id else None
     chore_id = repo.save_chore(chore)
     saved = require(repo.get_chore(chore_id))
@@ -385,19 +415,47 @@ def ensure_today(repo: Repo, ctx: Ctx) -> None:
 
 
 def refresh_today_for_chore(repo: Repo, ctx: Ctx, chore_id: int) -> None:
-    """Bring today's rows in line with an edited/deleted chore (D7). History is untouched."""
+    """Bring today's and future rows in line with an edited/deleted chore (D7, D52).
+
+    History is untouched.
+    """
     chore = repo.get_chore(chore_id)
     kids = [k.id for k in repo.list_kids()]
     keep = [k for k in kids if chore is not None and is_scheduled(chore, k, ctx.today)]
     repo.delete_pending(chore_id, ctx.today, keep_kids=keep, by=ctx.by)
     if chore is not None:
         repo.resync_pending(chore, ctx.today, by=ctx.by)
+    _refresh_future(repo, ctx, repo.future_instances(ctx.today, chore_id=chore_id))
     ensure_today(repo, ctx)
 
 
 def refresh_today_for_kid(repo: Repo, ctx: Ctx, kid_id: int) -> None:
-    """Drop today's pending rows for an inactive/deleted kid, or create them for an active one."""
+    """Drop today's pending rows for an inactive/deleted kid, or create them for an active one.
+
+    Future rows (ticked ahead) are dropped too (D52).
+    """
     kid = repo.get_kid(kid_id)
     if kid is None or not kid.active:
         repo.delete_pending_for_kid(kid_id, ctx.today, by=ctx.by)
+    _refresh_future(repo, ctx, repo.future_instances(ctx.today, kid_id=kid_id))
     ensure_today(repo, ctx)
+
+
+def _refresh_future(repo: Repo, ctx: Ctx, rows: list[Instance]) -> None:
+    """A day that hasn't come isn't history: its rows follow the chore (D52).
+
+    A row stays only while its chore still allows ticking ahead and is scheduled for that
+    active kid on that day; it then gets the chore's current snapshot, keeping its status.
+    """
+    active = {k.id for k in repo.list_kids()}
+    for inst in rows:
+        chore = repo.get_chore(inst.chore_id)
+        if (
+            chore is None
+            or not chore.can_tick_ahead
+            or inst.kid_id not in active
+            or not is_scheduled(chore, inst.kid_id, inst.day)
+        ):
+            repo.delete_instance(require(inst.id), by=ctx.by)
+        else:
+            repo.resnapshot(inst, chore, by=ctx.by)
