@@ -43,17 +43,16 @@ def wait_for_state(entity_id: str, expected: str, timeout: float = 5.0) -> None:
 def open_tablet(browser, name: str, lang: str = "en") -> Page:
     locale = {"en": "en-GB", "nb": "nb-NO"}[lang]
     context = browser.new_context(
-        viewport={"width": 1280, "height": 800},
-        locale=locale,
-        timezone_id="Europe/Oslo",
-        # HA's service worker reloads the page once it takes control (controllerchange),
-        # seconds after the first load, which would reset a tablet mid-test.
-        service_workers="block",
+        viewport={"width": 1280, "height": 800}, locale=locale, timezone_id="Europe/Oslo"
     )
     # Log in the way the HA frontend does: tokens + language in localStorage.
+    # No service worker: HA's reloads the page once it takes control, seconds after the
+    # first load, which would reset a tablet mid-test. HA skips it in a browser without
+    # support (blocking it in Playwright instead makes HA's own startup code throw).
     context.add_init_script(
         f"localStorage.setItem('hassTokens', {json.dumps(json.dumps(TOKENS))});"
         f"localStorage.setItem('selectedLanguage', '\"{lang}\"');"
+        "delete Navigator.prototype.serviceWorker;"
     )
     page = context.new_page()
     page.on("pageerror", lambda err: print(f"[{name}] page error: {err}", file=sys.stderr))
@@ -139,7 +138,7 @@ def main() -> None:
         expect(trash).to_contain_text("+10 min")
         expect(kid(a, "Ada")).not_to_contain_text("−10 lost")
 
-        # Once a day (D51): Bo sets the table, so Ada's row shows it's taken.
+        # Cooldown (D51): one kid a day sets the table. Bo does, so Ada's row is closed.
         kid(a, "Bo").locator(".chore", has_text="Set the table").click()
         expect(kid(a, "Bo").locator(".chore", has_text="Set the table")).to_have_class(
             re.compile(r"\bdone\b")
@@ -147,7 +146,7 @@ def main() -> None:
         ada_table = kid(a, "Ada").locator(".chore", has_text="Set the table")
         expect(ada_table).to_contain_text("Taken by Bo")
         expect(ada_table).to_be_disabled()
-        a.screenshot(path=ARTIFACTS / "10-taken.png")
+        a.screenshot(path=ARTIFACTS / "10-cooldown.png")
 
         # Tick ahead (D52): Ada did next Monday's homework already, from her week view.
         kid(a, "Ada").locator(".kid-name").click()

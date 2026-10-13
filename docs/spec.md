@@ -8,7 +8,7 @@ Draft 9, 11 Oct 2026. No open decisions. What it does, not how. Custom build (Ta
 2. Bonus chores are optional. Skipping them never looks like failure.
 3. Feedback only: progress bars, done/not done. No leaderboards, badges, streaks, confetti.
 4. Expected chores are mostly family-care, done unasked.
-5. Strict week-to-week, Monday to Sunday. Nothing carries over.
+5. Strict week-to-week, Monday to Sunday. Nothing carries over. (Only an extra's cooldown may reach into Monday.)
 6. No more rigid than necessary: warn, don't block; leave edge cases to the parent.
 
 ## 2. Roles
@@ -35,7 +35,7 @@ Name, plus an optional **weekly maximum** per currency.
 
 ## 5. Chores (in a database, parent-managed)
 
-Fields: name, icon, description; type (expected/bonus); assigned kids; weekdays; time of day (morning/afternoon/anytime); value per currency (zero or more); once a day (extras only); can be ticked ahead (expected only); active.
+Fields: name, icon, description; type (expected/bonus); assigned kids; weekdays; time of day (morning/afternoon/anytime); value per currency (zero or more); cooldown in days (extras only); can be ticked ahead (expected only); active.
 
 **Expected**
 - Shown each scheduled day in their slot. Mostly afternoon, a few morning.
@@ -47,7 +47,7 @@ Fields: name, icon, description; type (expected/bonus); assigned kids; weekdays;
 - Earns **one** currency. A currency that can't be lost is payment. One that can be lost is offered only to **win back** what was lost this week, never more. If both are on offer, the kid picks ("1 €, or win back 10 min?"); otherwise the tap just ticks.
 - Muted section below expected chores. No highlighting or counters.
 - Always available; not locked behind expected chores.
-- **Once a day** (optional per extra): the first kid to do it that day takes it; the others see "Taken by Ada". Off for chores like the trash, which every kid can do.
+- **Cooldown** (optional per extra, in days): once any kid has done it, it can be done again N days later. 1 = one kid per day; 2 = done Thursday, closed Friday. A chore meant for "Thursday or Friday" is scheduled on both days with 2. The others see "Taken by Ada" or "Done Thu by Ada". 0 for chores like the trash, which every kid can do.
 
 **Scheduling after payout**
 - Scheduling a chore that pays a currency on a day after that currency's payout day shows a warning. It is not blocked.

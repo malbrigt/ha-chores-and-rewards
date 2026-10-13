@@ -558,3 +558,13 @@ The panel URL was `panel.js?v=<version>`. Going back to 0.1.0 reused an old URL,
 - `can_tick_ahead` went into the unreleased v2 migration instead of a separate v3.
 - Panel: future cells/rows of these chores are tappable (with a dated confirm); a kid's week view has a next-week arrow. `kidTap`/`parentActions` mirror the future-day rules via the shared fixtures.
 - **Found while building (E2E flake):** HA's service worker takes control a few seconds after a fresh browser context first loads, and HA then calls `location.reload()`. A tablet could reset to the overview mid-test. E2E contexts now block service workers.
+
+## Step 19: cooldown for extras, replacing "once a day" (user request)
+- **Why:** "Tørke støv stue" belongs on Thursday **or** Friday, and the stairs twice a week. With once-a-day on both days, one kid could do it Thursday and another again on Friday.
+- **Rule (D51 rewritten):** `cooldown_days` per extra: done on day D → open again on D + N, for everyone. 1 is the old once-a-day. Still derived from the other rows, now over nearby days instead of the same day, and in both directions so a late tick can't land next to a later completion.
+- **Schema:** the unreleased v2 migration was reshaped (`cooldown_days` instead of `once_a_day`), so the live v1 install upgrades once. No released entry was edited.
+- **Crosses Monday** on purpose (user's call): done Sunday with 2 closes Monday. Balances still never carry over.
+- **Closed a gap from step 17:** the week view let a kid tap a taken cell and then showed an error. Cells on cooldown are now empty, and tomorrow's preview shows them too.
+- `dev_backfill` skips an extra on cooldown (it would have stopped on the seeded once-a-day chores).
+- Not changed: a pot cap still counts every scheduled day of an extra.
+- **E2E:** blocking HA's service worker in Playwright (step 18) made HA's own startup code throw a page error. The test tablets now report no service-worker support instead, which HA handles: no reload and no error.

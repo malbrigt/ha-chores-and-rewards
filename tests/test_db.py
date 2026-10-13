@@ -3,7 +3,7 @@
 import sqlite3
 from contextlib import closing
 from dataclasses import replace
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -16,6 +16,7 @@ from custom_components.chores_and_rewards.db import (
     weekdays_to_mask,
 )
 from custom_components.chores_and_rewards.logic import (
+    MAX_COOLDOWN_DAYS,
     CapMode,
     Chore,
     ChoreType,
@@ -550,17 +551,38 @@ def test_v1_database_upgrades_keeping_data(tmp_path, monkeypatch):
     assert db.migrate() == SCHEMA_VERSION == 2
     assert Database(tmp_path / "chores.db.bak-v1").schema_version() == 1
     chores = db.run(lambda r: r.list_chores())
-    assert [(c.name, c.once_a_day, c.can_tick_ahead) for c in chores] == [("Dust", False, False)]
-    assert [(i.name, i.once_a_day) for i in db.run(lambda r: r.list_instances())] == [
-        ("Dust", False)
+    assert [(c.name, c.cooldown_days, c.can_tick_ahead) for c in chores] == [("Dust", 0, False)]
+    assert [(i.name, i.cooldown_days) for i in db.run(lambda r: r.list_instances())] == [
+        ("Dust", 0)
     ]
 
 
-def test_once_a_day_is_stored_and_snapshotted(db):
-    """D51, AC-5.7: the chore keeps the setting; its instances copy it (D6)."""
+def test_cooldown_is_stored_snapshotted_and_bounded(db):
+    """D51, AC-5.7: the chore keeps its cooldown; instances copy it (D6); 0 to the maximum."""
     kid = db.run(lambda r: r.save_kid(Kid(0, "Ada")))
-    dust = _chore([kid], type=ChoreType.BONUS, weekdays=frozenset(), once_a_day=True)
+    dust = _chore([kid], type=ChoreType.BONUS, weekdays=frozenset(), cooldown_days=2)
     chore_id = db.run(lambda r: r.save_chore(dust))
-    assert db.run(lambda r: r.get_chore(chore_id)).once_a_day
+    assert db.run(lambda r: r.get_chore(chore_id)).cooldown_days == 2
     db.run(lambda r: r.insert_instances(instances_for_day([r.get_chore(chore_id)], [kid], MON)))
-    assert db.run(lambda r: r.list_instances())[0].once_a_day
+    assert db.run(lambda r: r.list_instances())[0].cooldown_days == 2
+
+    longest = replace(dust, id=chore_id, cooldown_days=MAX_COOLDOWN_DAYS)
+    db.run(lambda r: r.save_chore(longest))
+    with pytest.raises(sqlite3.IntegrityError):  # the schema CHECK matches the constant
+        db.run(lambda r: r.save_chore(replace(longest, cooldown_days=MAX_COOLDOWN_DAYS + 1)))
+
+
+def test_instances_between_spans_weeks(db):
+    """D51: a cooldown looks at nearby days, also across the week boundary."""
+    kid = db.run(lambda r: r.save_kid(Kid(0, "Ada")))
+    days = [MON + timedelta(days=n) for n in (5, 6, 7, 8)]  # Sat, Sun | Mon, Tue
+    dust_id = db.run(lambda r: r.save_chore(_chore([kid], name="Dust", weekdays=frozenset())))
+    trash_id = db.run(lambda r: r.save_chore(_chore([kid], name="Trash", weekdays=frozenset())))
+    for day in days:
+        db.run(lambda r, d=day: r.insert_instances(instances_for_day(r.list_chores(), [kid], d)))
+    found = db.run(lambda r: r.instances_between(days[1], days[2]))
+    assert sorted((i.chore_id, i.day) for i in found) == sorted(
+        (c, d) for c in (dust_id, trash_id) for d in days[1:3]
+    )
+    only = db.run(lambda r: r.instances_between(days[1], days[2], chore_id=dust_id))
+    assert [(i.chore_id, i.day) for i in only] == [(dust_id, days[1]), (dust_id, days[2])]

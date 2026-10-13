@@ -37,7 +37,7 @@ def chore_json(c: Chore) -> dict[str, Any]:
         "values": {str(k): v for k, v in c.values.items()},
         "active": c.active,
         "sort": c.sort,
-        "once_a_day": c.once_a_day,
+        "cooldown_days": c.cooldown_days,
         "can_tick_ahead": c.can_tick_ahead,
     }
 
@@ -56,7 +56,7 @@ def instance_json(i: Instance) -> dict[str, Any]:
         "values": {str(k): v for k, v in i.values.items()},
         "status": i.status.value,
         "currency_id": i.currency_id,
-        "once_a_day": i.once_a_day,
+        "cooldown_days": i.cooldown_days,
     }
 
 

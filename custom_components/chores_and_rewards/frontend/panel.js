@@ -25,9 +25,11 @@ export const STRINGS = {
     act_done_for: "Merk som gjort: {label}",
     error_nothing_lost: "Ingenting å vinne tilbake.",
     error_decimals_locked: "Desimaler kan ikke endres etter at valutaen er laget.",
-    error_taken: "Et annet barn har allerede gjort denne i dag.",
-    taken_by: "Tatt av {name}",
-    f_once_a_day: "Kun ett barn per dag (ekstraoppgaver)",
+    error_on_cooldown: "Denne er allerede gjort.",
+    cooldown_today: "Tatt av {name}",
+    cooldown_day: "Gjort {day} av {name}",
+    someone: "noen",
+    f_cooldown_days: "Dager før den kan gjøres igjen, 0–14 (ekstraoppgaver; 0 = alle barn kan)",
     f_can_tick_ahead: "Kan krysses av på forhånd, ut neste uke (faste oppgaver)",
     error_future_day: "Den dagen er ikke kommet ennå.",
     error_not_scheduled: "Denne oppgaven er ikke satt opp den dagen.",
@@ -46,6 +48,7 @@ export const STRINGS = {
     st_excused: "fritatt",
     st_pending: "ikke gjort ennå",
     st_none: "ikke planlagt",
+    st_cooldown: "allerede gjort",
     today: "I dag",
     prev_day: "Forrige dag",
     next_day: "Neste dag",
@@ -195,9 +198,11 @@ export const STRINGS = {
     act_done_for: "Mark done: {label}",
     error_nothing_lost: "Nothing to win back.",
     error_decimals_locked: "Decimals can't be changed once the currency exists.",
-    error_taken: "Another kid already did this one today.",
-    taken_by: "Taken by {name}",
-    f_once_a_day: "Only one kid per day (extras)",
+    error_on_cooldown: "This one is already done.",
+    cooldown_today: "Taken by {name}",
+    cooldown_day: "Done {day} by {name}",
+    someone: "someone",
+    f_cooldown_days: "Days before it can be done again, 0–14 (extras; 0 = every kid can)",
     f_can_tick_ahead: "Can be ticked ahead, through next week (expected chores)",
     error_future_day: "That day hasn't come yet.",
     error_not_scheduled: "This chore isn't scheduled that day.",
@@ -216,6 +221,7 @@ export const STRINGS = {
     st_excused: "excused",
     st_pending: "not done yet",
     st_none: "not scheduled",
+    st_cooldown: "already done",
     today: "Today",
     prev_day: "Previous day",
     next_day: "Next day",
@@ -568,6 +574,24 @@ export function shortDay(dateStr, lang) {
 }
 
 /** One-letter weekday for the week grid header. */
+/** The short weekday of a date: "tor." / "Thu". */
+export function weekdayShort(dateStr, lang) {
+  const d = new Date(`${dateStr}T12:00:00Z`);
+  return new Intl.DateTimeFormat(LOCALE[lang], { weekday: "short", timeZone: "UTC" }).format(d);
+}
+
+/**
+ * Why a row on `day` is on cooldown (D51): "Taken by Ada" when the chore was done that
+ * same day, else "Done Thu by Ada". A week or more away the date is added, because a
+ * weekday alone would be ambiguous.
+ */
+export function cooldownText(cooldown, day, name, lang) {
+  if (cooldown.day === day) return t(lang, "cooldown_today", { name });
+  const far = addDays(cooldown.day, 7) <= day || addDays(day, 7) <= cooldown.day;
+  const when = far ? shortDay(cooldown.day, lang) : weekdayShort(cooldown.day, lang);
+  return t(lang, "cooldown_day", { day: when, name });
+}
+
 export function weekdayLetter(dateStr, lang) {
   const d = new Date(`${dateStr}T12:00:00Z`);
   return new Intl.DateTimeFormat(LOCALE[lang], { weekday: "narrow", timeZone: "UTC" })
@@ -778,7 +802,7 @@ const STYLES = `
   .meter-label .amount { margin-left: auto; color: var(--primary-text-color); }
   .meter-label .lost { color: var(--error-color); font-size: 0.85rem; }
   .chore .earned { margin-left: auto; color: var(--secondary-text-color); font-size: 0.85rem; }
-  .chore.taken { opacity: 0.5; }
+  .chore.cooldown { opacity: 0.5; }
   ha-icon { --mdc-icon-size: 20px; }
   .bar { height: 10px; border-radius: 5px; background: var(--divider-color); overflow: hidden; margin-top: 3px; }
   .fill { height: 100%; background: var(--primary-color); border-radius: 5px; }
@@ -1187,6 +1211,7 @@ export class ChoresPanel extends Base {
       kid_id: this._view.kidId,
       chore_id: row.chore_id,
       can_tick_ahead: row.can_tick_ahead,
+      cooldown: row.cooldown?.[day] ?? null,
       values: row.values?.[day] ?? {},
     };
   }
@@ -1468,8 +1493,8 @@ export class ChoresPanel extends Base {
     const setStatus = (status, extra = {}) =>
       this._run(() => this._pws("parent/set_status", { instance_id: inst.id, status, ...extra }));
     const options = this._earnOptions(inst);
-    // A once-a-day extra another kid already did can't be marked done (D51).
-    const statuses = parentActions(inst, this._state.today).filter((s) => !(s === "done" && inst.taken_by != null));
+    // An extra on cooldown can't be marked done; the server refuses it too (D51).
+    const statuses = parentActions(inst, this._state.today).filter((s) => !(s === "done" && inst.cooldown));
     const items = statuses.flatMap((status) =>
       status === "done" && options.length > 1
         ? options.map((cid) => ({
@@ -1650,7 +1675,7 @@ export class ChoresPanel extends Base {
     const L = this._lang;
     const chore = this._admin.chores.find((c) => c.id === choreId) ?? {
       chore_type: "expected",
-      once_a_day: false,
+      cooldown_days: 0,
       can_tick_ahead: false,
       slot: "afternoon",
       weekdays: [],
@@ -1698,7 +1723,7 @@ export class ChoresPanel extends Base {
         { key: "icon", type: "text", label: t(L, "f_icon") },
         { key: "description", type: "text", label: t(L, "f_description") },
         { key: "sort", type: "number", label: t(L, "f_sort") },
-        { key: "once_a_day", type: "bool", label: t(L, "f_once_a_day") },
+        { key: "cooldown_days", type: "number", label: t(L, "f_cooldown_days") },
         { key: "can_tick_ahead", type: "bool", label: t(L, "f_can_tick_ahead") },
         { key: "active", type: "bool", label: t(L, "f_active") },
       ],
@@ -1719,7 +1744,7 @@ export class ChoresPanel extends Base {
           description: v.description,
           sort: v.sort ?? 0,
           active: v.active,
-          once_a_day: v.chore_type === "bonus" && Boolean(v.once_a_day), // extras only (D51)
+          cooldown_days: v.chore_type === "bonus" ? (v.cooldown_days ?? 0) : 0, // extras only (D51)
           can_tick_ahead: v.chore_type === "expected" && Boolean(v.can_tick_ahead), // D52
         });
         // AC-5.5: a warning only; the chore is saved.
@@ -1960,8 +1985,8 @@ export class ChoresPanel extends Base {
     // Parents also get a ⋯ menu and see a warning icon on ticks made after the chore's day.
     const L = this._lang;
     const open = this._state.week_status === "open";
-    const taken = inst.taken_by != null; // once-a-day extra, already done by another kid (D51)
-    const tappable = open && !taken && kidTap(inst, this._state.today) !== null;
+    const cooldown = inst.cooldown ?? null; // another completion keeps this extra closed (D51)
+    const tappable = open && !cooldown && kidTap(inst, this._state.today) !== null;
     const late =
       this._parent && inst.late
         ? html`<span class="late" title="${t(L, "late_hint")}" role="img" aria-label="${t(L, "late_hint")}"
@@ -1974,10 +1999,11 @@ export class ChoresPanel extends Base {
             aria-label="${t(L, "more_actions", { name: inst.name })}">${icon("mdi:dots-vertical")}</button>`
         : "";
     const box = inst.status === "pending" ? "" : cellSymbol(inst.status);
-    const takenName = taken ? this._state.kids.find((k) => k.id === inst.taken_by)?.name : null;
-    const earned = taken ? html`<span class="earned">${t(L, "taken_by", { name: takenName ?? "?" })}</span>` : this._earnedTag(inst);
+    const earned = cooldown
+      ? html`<span class="earned">${cooldownText(cooldown, inst.day, this._kidName(cooldown.kid_id) || t(L, "someone"), L)}</span>`
+      : this._earnedTag(inst);
     return html`<div class="row">
-      <button class="chore ${inst.status}${taken ? " taken" : ""}" data-action="toggle" ${this._target(inst)} role="checkbox"
+      <button class="chore ${inst.status}${cooldown ? " cooldown" : ""}" data-action="toggle" ${this._target(inst)} role="checkbox"
         aria-checked="${inst.status === "done" ? "true" : "false"}" ${tappable ? "" : raw("disabled")}>
         <span class="box" aria-hidden="true">${box}</span><span>${inst.name}</span>${earned}${late}
       </button>${more}
@@ -2044,18 +2070,23 @@ export class ChoresPanel extends Base {
     const rows = w.rows.map((r) => {
       const cells = w.days.map((d) => {
         const status = r.cells[d];
-        const cls = `cell ${status ?? ""} ${d === today ? "today" : ""}`;
-        const label = t(L, "cell_label", { name: r.name, day: shortDay(d, L), status: t(L, `st_${status ?? "none"}`) });
         const late = this._parent && r.late?.[d] ? html`<span class="late">${icon("mdi:alert")}</span>` : "";
         const todays = d === today ? todayByChore.get(r.chore_id) : null;
         const id = todays?.id ?? r.ids?.[d];
         const inst = todays ?? (id || (d > today && status) ? this._cellInstance(r, d) : null);
+        // An extra on cooldown is like a day with nothing to do: empty, no tap (D51).
+        const cooldown = Boolean(inst?.cooldown);
+        const shown = cooldown ? "cooldown" : (status ?? "none");
+        const cls = `cell ${cooldown ? "" : (status ?? "")} ${d === today ? "today" : ""}`;
+        const label = t(L, "cell_label", { name: r.name, day: shortDay(d, L), status: t(L, `st_${shown}`) });
         let action = null;
-        if (inst && open && d > today && kidTap(inst, today)) action = html`data-action="toggle"`;
-        else if (inst && open && d === today && kidTap(inst, today)) action = html`data-action="toggle" data-confirm="1"`;
-        else if (inst && open && d < today && this._parent) action = html`data-action="more"`;
-        else if (inst && open && d < today && kidTap(inst, today)) action = html`data-action="toggle"`;
-        const symbol = cellSymbol(inst?.status ?? status);
+        if (inst && open && !cooldown) {
+          if (d > today && kidTap(inst, today)) action = html`data-action="toggle"`;
+          else if (d === today && kidTap(inst, today)) action = html`data-action="toggle" data-confirm="1"`;
+          else if (d < today && this._parent) action = html`data-action="more"`;
+          else if (d < today && kidTap(inst, today)) action = html`data-action="toggle"`;
+        }
+        const symbol = cooldown ? "" : cellSymbol(inst?.status ?? status);
         if (action) {
           return html`<td class="${cls}"><button ${action} ${this._target(inst)} aria-label="${label}">
               ${symbol}${late}</button></td>`;

@@ -201,6 +201,7 @@ test("admin: new chore form saves the typed values and shows the payout warning"
   form.querySelector('[name="weekdays"][value="6"]').checked = true;
   form.querySelector('[name="kid_ids"][value="1"]').checked = true;
   form.querySelector('[name="value_1"]').value = "15";
+  form.querySelector('[name="cooldown_days"]').value = "2";
   // A background reload must not wipe what was typed.
   await root.host._reload();
   assert.equal(root.querySelector('form.form [name="name"]').value, "Støvsuge");
@@ -213,7 +214,7 @@ test("admin: new chore form saves the typed values and shows the payout warning"
   assert.deepEqual(save.kid_ids, [1]);
   assert.deepEqual(save.values, { 1: 15 });
   assert.equal(save.chore_type, "expected");
-  assert.equal(save.once_a_day, false, "once a day is for extras only (D51)");
+  assert.equal(save.cooldown_days, 0, "a cooldown is for extras only (AC-5.7, D51)");
   assert.ok(root.querySelector(".toast.info")?.textContent.includes("Skjermtid"), "payout warning");
   assert.equal(root.querySelector("form.form"), null, "form closed");
 });
@@ -311,14 +312,62 @@ test("extra chore: lost screen time → pick pay or win back; nothing lost → p
   assert.deepEqual(second.hass.calls.at(-1), { type: "chores_and_rewards/set_done", instance_id: 3, done: true });
 });
 
-test("a once-a-day extra another kid did is greyed out with who took it (AC-6.8, D51)", async () => {
+test("admin: an extra chore's cooldown is saved (AC-5.7, D51)", async () => {
+  const { root, hass } = await mount();
+  click(root, '[data-action="lock-toggle"]');
+  for (const d of "1234") click(root, `[data-action="pin-digit"][data-digit="${d}"]`);
+  click(root, '[data-action="pin-ok"]');
+  await tick();
+  click(root, '[data-action="tab"][data-tab="admin"]');
+  await tick();
+  click(root, '[data-action="edit-chore"]:not([data-id])');
+  await tick();
+  const form = root.querySelector("form.form");
+  assert.equal(form.querySelector('[name="cooldown_days"]').value, "0", "no cooldown by default");
+  form.querySelector('[name="name"]').value = "Tørke støv";
+  form.querySelector('[name="chore_type"]').value = "bonus";
+  form.querySelector('[name="cooldown_days"]').value = "2";
+  click(root, '[data-action="form-save"]');
+  await tick();
+  const save = hass.calls.find((c) => c.type.endsWith("admin/chore/save"));
+  assert.equal(save.chore_type, "bonus");
+  assert.equal(save.cooldown_days, 2);
+});
+
+test("an extra on cooldown is greyed out with who did it and when (AC-6.8, D51)", async () => {
   const state = structuredClone(STATE);
-  state.board[2].bonus = [{ ...inst(5, 2, "Vaske vinduer", "anytime", "bonus"), taken_by: 1 }];
+  state.board[2].bonus = [
+    { ...inst(5, 2, "Vaske vinduer", "anytime", "bonus"), cooldown: { kid_id: 1, day: TODAY } },
+    { ...inst(6, 2, "Tørke støv", "anytime", "bonus"), cooldown: { kid_id: 1, day: "2026-10-08" } },
+    { ...inst(7, 2, "Søppel", "anytime", "bonus"), cooldown: null },
+  ];
   const { root } = await mount(state);
-  const row = root.querySelector('[data-action="toggle"][data-id="5"]');
-  assert.ok(row.classList.contains("taken"));
-  assert.ok(row.hasAttribute("disabled"), "can't be ticked");
-  assert.ok(row.textContent.includes("Tatt av Ada"));
+  const row = (id) => root.querySelector(`[data-action="toggle"][data-id="${id}"]`);
+  for (const id of [5, 6]) {
+    assert.ok(row(id).classList.contains("cooldown"));
+    assert.ok(row(id).hasAttribute("disabled"), "can't be ticked");
+  }
+  assert.ok(row(5).textContent.includes("Tatt av Ada"), "done today by another kid");
+  assert.match(row(6).textContent, /Gjort tor\.? av Ada/, "done yesterday");
+  assert.ok(!row(7).hasAttribute("disabled") && !row(7).classList.contains("cooldown"));
+});
+
+test("week view: a cell on cooldown is empty and can't be tapped (AC-6.8, D51)", async () => {
+  const days = ["2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08", TODAY, "2026-10-10", "2026-10-11"];
+  const cells = { "2026-10-07": "pending", "2026-10-08": "pending" };
+  const { root } = await mount(STATE, {
+    get_week: () => ({ week: "2026-10-05", week_status: "open", days, balances: { 1: balance },
+      rows: [{ chore_id: 8, name: "Tørke støv", slot: "anytime", type: "bonus", cells, values: {},
+        ids: { "2026-10-07": 80, "2026-10-08": 81 },
+        cooldown: { "2026-10-08": { kid_id: 2, day: "2026-10-07" } } }] }),
+  });
+  click(root, '[data-action="kid"][data-kid="1"]');
+  await tick();
+  const [, , wed, thu] = root.querySelectorAll("table.week tbody tr td.cell");
+  assert.ok(wed.querySelector('[data-action="toggle"][data-id="80"]'), "a free past extra can be ticked");
+  assert.equal(thu.querySelector("button"), null);
+  assert.equal(thu.textContent.trim(), "");
+  assert.ok(thu.getAttribute("aria-label").includes("allerede gjort"));
 });
 
 test("week view: next week, and a homework cell ahead is ticked through tick_ahead (AC-6.9, D52)", async () => {

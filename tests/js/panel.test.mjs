@@ -151,6 +151,18 @@ test("parentActions mirrors logic.transition (D19)", async () => {
   assert.deepEqual(parentActions(inst({ id: null }), today), []); // preview
 });
 
+test("cooldownText says who did the chore, and when if it wasn't that day (D51)", async () => {
+  const { cooldownText } = await import("../../custom_components/chores_and_rewards/frontend/panel.js");
+  const friday = "2026-10-09";
+  assert.equal(cooldownText({ kid_id: 1, day: friday }, friday, "Ada", "nb"), "Tatt av Ada");
+  assert.equal(cooldownText({ kid_id: 1, day: friday }, friday, "Ada", "en"), "Taken by Ada");
+  assert.match(cooldownText({ kid_id: 1, day: "2026-10-08" }, friday, "Ada", "nb"), /^Gjort tor\.? av Ada$/);
+  assert.equal(cooldownText({ kid_id: 1, day: "2026-10-08" }, friday, "Ada", "en"), "Done Thu by Ada");
+  // A late tick can be blocked by a later day; a week or more away the date is shown.
+  assert.match(cooldownText({ kid_id: 1, day: "2026-10-10" }, friday, "Ada", "nb"), /^Gjort lør\.? av Ada$/);
+  assert.match(cooldownText({ kid_id: 1, day: "2026-10-01" }, friday, "Ada", "nb"), /^Gjort tor\.? 1\.10\.? av Ada$/);
+});
+
 test("parseOptionalInt and weekdayName", async () => {
   const { parseOptionalInt, weekdayName } = await import(
     "../../custom_components/chores_and_rewards/frontend/panel.js"

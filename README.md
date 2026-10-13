@@ -14,7 +14,7 @@ A weekly chores board for a kitchen touchscreen, running entirely inside Home As
   - a weekly cap, either a **fixed max** (screen time never goes above it) or the **sum of the week's chores** (allowance is whatever was on offer).
 - **Chores:** each chore has weekdays, a time of day (morning / afternoon / anytime), the kids it's for, and a value per currency. There are two types:
   - **Expected:** a duty. A missed one can cost.
-  - **Bonus:** optional. It only ever earns and is never shown as a failure. It earns one currency: payment (e.g. allowance), or, after a bad day, the kid can pick to win back lost screen time instead. A bonus can be **once a day**: the first kid to do it takes it. An expected chore like homework can be **ticked ahead**, up to the end of next week.
+  - **Bonus:** optional. It only ever earns and is never shown as a failure. It earns one currency: payment (e.g. allowance), or, after a bad day, the kid can pick to win back lost screen time instead. A bonus can have a **cooldown**: once one kid has done it, nobody can do it again for a set number of days (1 = one kid per day). An expected chore like homework can be **ticked ahead**, up to the end of next week.
 
 ## How a week works
 1. Each day the screen shows every kid's chores. A tap ticks a chore at once, with no approval. Forgotten ticks can be fixed any day that week; they are flagged as late for the parent.

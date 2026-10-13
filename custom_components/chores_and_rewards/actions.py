@@ -25,15 +25,16 @@ from .logic import (
     RuleError,
     Status,
     WeekStatus,
+    cooldown_span,
     days_to_finalize,
     earn_options,
     finalize,
     instances_for_day,
     is_late,
     is_scheduled,
+    on_cooldown,
     payout_warnings,
     snapshot,
-    taken_by,
     tick_ahead_until,
     transition,
     undo_status,
@@ -106,10 +107,16 @@ def _earns(repo: Repo, ctx: Ctx, inst: Instance, status: Status, wanted: int | N
     return wanted
 
 
-def _require_free(repo: Repo, inst: Instance, status: Status) -> None:
-    """A once-a-day extra already done by another kid that day can't be done again (D51)."""
-    if status is Status.DONE and taken_by(inst, repo.list_instances(day=inst.day)) is not None:
-        raise RuleError("taken")
+def _require_off_cooldown(repo: Repo, inst: Instance, status: Status) -> None:
+    """An extra can't be done while another completion keeps it on cooldown (D51).
+
+    The completion may be another kid's, or on a nearby day, also in last week.
+    """
+    if status is not Status.DONE or not inst.cooldown_days:
+        return
+    first, last = cooldown_span(inst.day, inst.cooldown_days)
+    if on_cooldown(inst, repo.instances_between(first, last, chore_id=inst.chore_id)):
+        raise RuleError("on_cooldown")
 
 
 def _can_tick_ahead(repo: Repo, inst: Instance) -> bool:
@@ -129,7 +136,7 @@ def set_done(
     _require_open(repo, week_start(inst.day))
     target = Status.DONE if done else undo_status(inst, ctx.today)
     new = transition(inst, target, Actor.KID, ctx.today, _can_tick_ahead(repo, inst))
-    _require_free(repo, inst, target)
+    _require_off_cooldown(repo, inst, target)
     new = replace(new, currency_id=_earns(repo, ctx, inst, target, currency_id))
     action = AuditAction.CHECK if done else AuditAction.UNCHECK
     return _record_status(repo, action, ctx, inst, new, status_by=Actor.KID.value)
@@ -142,7 +149,7 @@ def set_status(
     inst = require(repo.get_instance(instance_id))
     _require_open(repo, week_start(inst.day))
     new = transition(inst, status, Actor.PARENT, ctx.today, _can_tick_ahead(repo, inst))
-    _require_free(repo, inst, status)
+    _require_off_cooldown(repo, inst, status)
     new = replace(new, currency_id=_earns(repo, ctx, inst, status, currency_id))
     return _record_status(repo, AuditAction.SET_STATUS, ctx, inst, new, status_by=ctx.by)
 
@@ -243,8 +250,8 @@ def save_chore(repo: Repo, ctx: Ctx, chore: Chore) -> tuple[int, list[int]]:
     known_currencies = {c.id for c in repo.list_currencies(True)}
     if not chore.kid_ids <= known_kids or not set(chore.values) <= known_currencies:
         raise NotFound
-    if chore.once_a_day and chore.type is not ChoreType.BONUS:
-        raise RuleError("not_allowed")  # an expected chore is every kid's own (D51)
+    if chore.cooldown_days and chore.type is not ChoreType.BONUS:
+        raise RuleError("not_allowed")  # an expected chore is every kid's own, every day (D51)
     if chore.can_tick_ahead and chore.type is not ChoreType.EXPECTED:
         raise RuleError("not_allowed")  # an extra earns from that week's balance (D49, D52)
     before = chore_json(require(repo.get_chore(chore.id))) if chore.id else None

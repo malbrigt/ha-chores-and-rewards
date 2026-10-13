@@ -239,12 +239,14 @@ SELECT strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'), 'system', 'currency_save', 'c
 FROM currencies;
 """
 
-# v2: once-a-day extras (D51) and ticking ahead (D52). Existing chores and rows default to off.
+# v2: a cooldown for extras (D51) and ticking ahead (D52). Existing chores and rows get
+# 0 / off, so nothing changes until a parent sets them. The cooldown is part of an
+# instance's snapshot (D6); 14 is logic.MAX_COOLDOWN_DAYS.
 _V2_CHORE_OPTIONS = """
-ALTER TABLE chores ADD COLUMN once_a_day INTEGER NOT NULL DEFAULT 0
-    CHECK (once_a_day IN (0, 1));
-ALTER TABLE instances ADD COLUMN once_a_day INTEGER NOT NULL DEFAULT 0
-    CHECK (once_a_day IN (0, 1));
+ALTER TABLE chores ADD COLUMN cooldown_days INTEGER NOT NULL DEFAULT 0
+    CHECK (cooldown_days BETWEEN 0 AND 14);
+ALTER TABLE instances ADD COLUMN cooldown_days INTEGER NOT NULL DEFAULT 0
+    CHECK (cooldown_days BETWEEN 0 AND 14);
 ALTER TABLE chores ADD COLUMN can_tick_ahead INTEGER NOT NULL DEFAULT 0
     CHECK (can_tick_ahead IN (0, 1));
 """
@@ -512,7 +514,7 @@ class Repo:
             "weekdays": weekdays_to_mask(c.weekdays),
             "active": c.active,
             "sort": c.sort,
-            "once_a_day": c.once_a_day,
+            "cooldown_days": c.cooldown_days,
             "can_tick_ahead": c.can_tick_ahead,
         }
         chore_id = self._save("chores", c.id, fields)
@@ -593,7 +595,7 @@ class Repo:
         for i in rows:
             row = self._x(
                 "INSERT OR IGNORE INTO instances (week, kid_id, chore_id, day, type, slot, name,"
-                " icon, status, status_at, once_a_day) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " icon, status, status_at, cooldown_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 " RETURNING id",
                 [
                     week_start(i.day).isoformat(),
@@ -606,7 +608,7 @@ class Repo:
                     i.icon,
                     i.status.value,
                     i.status_at,
-                    i.once_a_day,
+                    i.cooldown_days,
                 ],
             ).fetchone()
             if row is not None:  # None: the (kid, chore, day) row already existed
@@ -648,14 +650,14 @@ class Repo:
     def resync_pending(self, chore: Chore, day: date, by: str | None = SYSTEM_USER) -> None:
         """Refresh pending snapshots of `chore` on `day` after an edit (D7)."""
         rows = self._x(
-            "UPDATE instances SET type = ?, slot = ?, name = ?, icon = ?, once_a_day = ?"
+            "UPDATE instances SET type = ?, slot = ?, name = ?, icon = ?, cooldown_days = ?"
             " WHERE chore_id = ? AND day = ? AND status = ? RETURNING id, kid_id",
             [
                 chore.type.value,
                 chore.slot.value,
                 chore.name,
                 chore.icon,
-                chore.once_a_day,
+                chore.cooldown_days,
                 chore.id,
                 day.isoformat(),
                 Status.PENDING,
@@ -685,6 +687,14 @@ class Repo:
         where = f"{where} AND day > ?" if where else "WHERE day > ?"
         return self._load_instances(where, [*params, after.isoformat()])
 
+    def instances_between(
+        self, first: date, last: date, *, chore_id: int | None = None
+    ) -> list[Instance]:
+        """Rows from `first` to `last`, both included. A cooldown looks across weeks (D51)."""
+        where, params = _where(chore_id=chore_id)
+        where = f"{where} AND day BETWEEN ? AND ?" if where else "WHERE day BETWEEN ? AND ?"
+        return self._load_instances(where, [*params, first.isoformat(), last.isoformat()])
+
     def delete_instance(self, instance_id: int, by: str | None = SYSTEM_USER) -> None:
         rows = self._x(
             "DELETE FROM instances WHERE id = ? RETURNING id, kid_id, day", [instance_id]
@@ -697,9 +707,16 @@ class Repo:
             raise LookupError("instance is not stored")
         fresh = snapshot(chore, inst.kid_id, inst.day)
         self._x(
-            "UPDATE instances SET type = ?, slot = ?, name = ?, icon = ?, once_a_day = ?"
+            "UPDATE instances SET type = ?, slot = ?, name = ?, icon = ?, cooldown_days = ?"
             " WHERE id = ?",
-            [fresh.type.value, fresh.slot.value, fresh.name, fresh.icon, fresh.once_a_day, inst.id],
+            [
+                fresh.type.value,
+                fresh.slot.value,
+                fresh.name,
+                fresh.icon,
+                fresh.cooldown_days,
+                inst.id,
+            ],
         )
         self._set_instance_values(inst.id, fresh.values)
         updated = replace(fresh, id=inst.id, status=inst.status, currency_id=inst.currency_id)
@@ -947,7 +964,7 @@ def _chore(r: sqlite3.Row, kid_ids: set[int], values: dict[int, int]) -> Chore:
         description=r["description"],
         active=bool(r["active"]),
         sort=r["sort"],
-        once_a_day=bool(r["once_a_day"]),
+        cooldown_days=r["cooldown_days"],
         can_tick_ahead=bool(r["can_tick_ahead"]),
     )
 
@@ -966,5 +983,5 @@ def _instance(r: sqlite3.Row, values: dict[int, int]) -> Instance:
         status=Status(r["status"]),
         status_at=r["status_at"],
         currency_id=r["currency_id"],
-        once_a_day=bool(r["once_a_day"]),
+        cooldown_days=r["cooldown_days"],
     )

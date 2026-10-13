@@ -28,6 +28,7 @@ from .audit import AuditAction
 from .const import DOMAIN, SIGNAL_UPDATED
 from .db import Repo
 from .logic import (
+    MAX_COOLDOWN_DAYS,
     CapMode,
     Chore,
     ChoreType,
@@ -154,6 +155,13 @@ def instance_out(i: Instance) -> dict[str, Any]:
     return {**instance_json(i), "status_at": i.status_at, "late": _ticked_late(i)}
 
 
+def cooldown_out(blocker: Instance | None) -> dict[str, Any] | None:
+    """Who did the chore, and on which day, for a row that is on cooldown (D51)."""
+    if blocker is None:
+        return None
+    return {"kid_id": blocker.kid_id, "day": blocker.day.isoformat()}
+
+
 # --- Kid and read API ---------------------------------------------------------------
 
 
@@ -201,7 +209,7 @@ async def ws_get_state(
                         for i in data.chores
                     ],
                     "bonus": [
-                        {**instance_out(i), "taken_by": data.taken.get(i.id or 0)}
+                        {**instance_out(i), "cooldown": cooldown_out(data.cooldown.get(i.chore_id))}
                         for i in data.bonus
                     ],
                     "balances": balances_json(data.balances),
@@ -245,6 +253,7 @@ async def ws_get_week(
                     "cells": {d.isoformat(): i.status.value for d, i in r["days"].items()},
                     "ids": {d.isoformat(): i.id for d, i in r["days"].items()},
                     "late": {d.isoformat(): _ticked_late(i) for d, i in r["days"].items()},
+                    "cooldown": {d.isoformat(): cooldown_out(b) for d, b in r["cooldown"].items()},
                     "values": {
                         d.isoformat(): {str(c): v for c, v in i.values.items()}
                         for d, i in r["days"].items()
@@ -459,7 +468,9 @@ async def ws_currency_delete(
         vol.Required("values"): {vol.Coerce(int): _NON_NEG},
         vol.Optional("active", default=True): bool,
         vol.Optional("sort", default=0): int,
-        vol.Optional("once_a_day", default=False): bool,
+        vol.Optional("cooldown_days", default=0): vol.All(
+            int, vol.Range(min=0, max=MAX_COOLDOWN_DAYS)
+        ),
         vol.Optional("can_tick_ahead", default=False): bool,
     }
 )
@@ -479,7 +490,7 @@ async def ws_chore_save(
         description=msg["description"],
         active=msg["active"],
         sort=msg["sort"],
-        once_a_day=msg["once_a_day"],
+        cooldown_days=msg["cooldown_days"],
         can_tick_ahead=msg["can_tick_ahead"],
     )
     run = partial(actions.save_chore, ctx=_ctx(connection, store), chore=chore)

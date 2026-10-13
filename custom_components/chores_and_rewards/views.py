@@ -17,11 +17,12 @@ from .logic import (
     Instance,
     after_payout,
     compute_balance,
+    cooldown_span,
     instances_for_day,
     is_payout_day,
+    on_cooldown,
     payout_day,
     resolve_cap,
-    taken_by,
     week_days,
     week_pot,
     week_start,
@@ -68,7 +69,18 @@ class KidBoard:
     chores: list[Instance]  # expected, ordered by slot
     bonus: list[Instance]
     balances: dict[int, Balance]
-    taken: dict[int, int]  # instance id -> the kid who already did it (once a day, D51)
+    cooldown: dict[int, Instance]  # chore id → the done row that blocks this kid's row (D51)
+
+
+def _cooldown_rows(repo: Repo, rows: list[Instance]) -> list[Instance]:
+    """Every stored row that could put one of `rows` on cooldown (D51).
+
+    One query over the widest cooldown among them; nothing is read if none has one.
+    """
+    spans = [cooldown_span(i.day, i.cooldown_days) for i in rows if i.cooldown_days]
+    if not spans:
+        return []
+    return repo.instances_between(min(s[0] for s in spans), max(s[1] for s in spans))
 
 
 def board(repo: Repo, day: date, today: date) -> dict[int, KidBoard]:
@@ -86,6 +98,7 @@ def board(repo: Repo, day: date, today: date) -> dict[int, KidBoard]:
         found += [i for i in preview if (i.kid_id, i.chore_id) not in stored]
     rows = sorted(found, key=_sort_key)
     balances = week_balances(repo, week, today)
+    nearby = _cooldown_rows(repo, rows)
     out = {}
     for kid in kids:
         mine = [i for i in rows if i.kid_id == kid.id]
@@ -93,10 +106,8 @@ def board(repo: Repo, day: date, today: date) -> dict[int, KidBoard]:
             chores=[i for i in mine if i.type is ChoreType.EXPECTED],
             bonus=[i for i in mine if i.type is ChoreType.BONUS],
             balances=balances.get(kid.id, {}),
-            taken={
-                i.id: kid_id
-                for i in mine
-                if i.id is not None and (kid_id := taken_by(i, rows)) is not None
+            cooldown={
+                i.chore_id: blocker for i in mine if (blocker := on_cooldown(i, nearby)) is not None
             },
         )
     return out
@@ -106,7 +117,8 @@ def week_grid(repo: Repo, kid_id: int, week: date, today: date) -> list[dict]:
     """One row per chore seen that week, with the instance per day (AC-8.3).
 
     Days that haven't come show chores that can be ticked ahead as unsaved previews
-    (id None) until a row exists (D52).
+    (id None) until a row exists (D52). `cooldown` holds, per day, the done row that
+    blocks that day's row (D51).
     """
     found = repo.list_instances(week=week, kid_id=kid_id)
     stored = {(i.chore_id, i.day) for i in found}
@@ -118,14 +130,23 @@ def week_grid(repo: Repo, kid_id: int, week: date, today: date) -> list[dict]:
                 for i in instances_for_day(ahead, [kid_id], day)
                 if (i.chore_id, i.day) not in stored
             ]
+    nearby = _cooldown_rows(repo, found)
     rows: dict[int, dict] = {}
     for inst in sorted(found, key=_sort_key):
         row = rows.setdefault(
             inst.chore_id,
-            {"chore_id": inst.chore_id, "type": inst.type, "slot": inst.slot, "days": {}},
+            {
+                "chore_id": inst.chore_id,
+                "type": inst.type,
+                "slot": inst.slot,
+                "days": {},
+                "cooldown": {},
+            },
         )
         row["name"] = inst.name  # latest snapshot wins
         row["days"][inst.day] = inst
+        if (blocker := on_cooldown(inst, nearby)) is not None:
+            row["cooldown"][inst.day] = blocker
     return list(rows.values())
 
 

@@ -59,6 +59,9 @@ class Slot(StrEnum):
 
 SLOT_ORDER = (Slot.MORNING, Slot.AFTERNOON, Slot.ANYTIME)
 
+# Longest cooldown for an extra chore: two weeks. Also a CHECK in the schema (D51).
+MAX_COOLDOWN_DAYS = 14
+
 
 class Status(StrEnum):
     PENDING = "pending"
@@ -119,7 +122,8 @@ class Chore:
     description: str = ""
     active: bool = True
     sort: int = 0
-    once_a_day: bool = False  # extras only: the first kid to do it takes it that day (D51)
+    # Extras only: done on day D, by any kid → open again on day D + this (0 = no limit, D51).
+    cooldown_days: int = 0
     can_tick_ahead: bool = False  # expected only: may be ticked on a future day (D52)
 
 
@@ -139,7 +143,7 @@ class Instance:
     id: int | None = None  # set once stored
     status_at: str | None = None  # ISO UTC time of the last status change
     currency_id: int | None = None  # extra chores: the one currency it earns (D49)
-    once_a_day: bool = False  # snapshot of Chore.once_a_day (D51)
+    cooldown_days: int = 0  # snapshot of Chore.cooldown_days (D51)
 
 
 @dataclass(frozen=True)
@@ -231,25 +235,40 @@ def snapshot(chore: Chore, kid_id: int, day: date) -> Instance:
         name=chore.name,
         values=dict(chore.values),
         icon=chore.icon,
-        once_a_day=chore.once_a_day,
+        cooldown_days=chore.cooldown_days,
     )
 
 
-def taken_by(inst: Instance, same_day: Iterable[Instance]) -> int | None:
-    """The kid who already did this once-a-day chore today, if it isn't `inst`'s kid (D51)."""
-    if not inst.once_a_day:
+def cooldown_span(day: date, cooldown_days: int) -> tuple[date, date]:
+    """First and last day on which a completion would put a row on `day` on cooldown."""
+    reach = timedelta(days=max(cooldown_days - 1, 0))
+    return day - reach, day + reach
+
+
+def on_cooldown(inst: Instance, rows: Iterable[Instance]) -> Instance | None:
+    """The done row that keeps `inst` on cooldown (the nearest one), or None if it is free.
+
+    A chore done on day D can be done again on day D + cooldown_days, whoever did it (D51).
+    So another row of the same chore that is done fewer days away than that blocks this
+    one. Both directions count: a late tick for an earlier day is blocked by a later
+    completion too, which keeps any two completions at least cooldown_days apart. With
+    1, only the other kids' rows of the same day are blocked. A done row is never blocked.
+    """
+    if not inst.cooldown_days or inst.status is Status.DONE:
         return None
-    return next(
-        (
-            i.kid_id
-            for i in same_day
-            if i.chore_id == inst.chore_id
-            and i.day == inst.day
-            and i.kid_id != inst.kid_id
-            and i.status is Status.DONE
-        ),
-        None,
-    )
+
+    def days_away(other: Instance) -> int:
+        return abs((other.day - inst.day).days)
+
+    blocking = [
+        i
+        for i in rows
+        if i.chore_id == inst.chore_id
+        and i.status is Status.DONE
+        and (i.kid_id, i.day) != (inst.kid_id, inst.day)
+        and days_away(i) < inst.cooldown_days
+    ]
+    return min(blocking, key=lambda i: (days_away(i), i.day, i.kid_id), default=None)
 
 
 # --- State transitions --------------------------------------------------------

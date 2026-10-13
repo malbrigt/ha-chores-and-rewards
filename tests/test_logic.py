@@ -15,16 +15,17 @@ from custom_components.chores_and_rewards.logic import (
     Slot,
     Status,
     compute_balance,
+    cooldown_span,
     days_to_finalize,
     finalize,
     instances_for_day,
     is_late,
     is_payout_day,
     is_scheduled,
+    on_cooldown,
     payout_warnings,
     resolve_cap,
     snapshot,
-    taken_by,
     tick_ahead_until,
     transition,
     undo_status,
@@ -363,29 +364,64 @@ def test_rule_error_code():
     assert str(RuleError("x")) == "x" and RuleError("x").code == "x"
 
 
-@pytest.mark.parametrize(
-    ("once_a_day", "rows", "kid", "expected"),
-    [
-        (True, {1: Status.DONE, 2: Status.PENDING}, 2, 1),
-        (True, {1: Status.DONE, 2: Status.PENDING}, 1, None),  # your own tick
-        (True, {1: Status.REJECTED, 2: Status.PENDING}, 2, None),  # a reject frees it
-        (True, {1: Status.PENDING, 2: Status.PENDING}, 2, None),
-        (False, {1: Status.DONE, 2: Status.PENDING}, 2, None),  # e.g. the trash
-    ],
-)
-def test_taken_by(once_a_day, rows, kid, expected):
-    """AC-6.8, D51: a once-a-day extra belongs to the first kid who did it that day."""
-    chore = Chore(
+def _dust(cooldown_days: int) -> Chore:
+    kids = frozenset({1, 2})
+    return Chore(
         1,
         "Dust",
         ChoreType.BONUS,
-        frozenset(rows),
+        kids,
         frozenset(),
         Slot.ANYTIME,
         {2: 10},
-        once_a_day=once_a_day,
+        cooldown_days=cooldown_days,
     )
-    insts = [replace(snapshot(chore, k, MON), status=st) for k, st in rows.items()]
-    mine = next(i for i in insts if i.kid_id == kid)
-    assert mine.once_a_day is once_a_day  # copied from the chore (D6)
-    assert taken_by(mine, insts) == expected
+
+
+D, R, P = Status.DONE, Status.REJECTED, Status.PENDING
+
+
+@pytest.mark.parametrize(
+    ("cooldown_days", "rows", "asking", "blocker"),
+    [
+        # rows and asking are (kid, days after Monday[, status]); blocker is (kid, day) or None.
+        (0, [(1, 0, D)], (2, 0), None),  # no cooldown: every kid can do it, e.g. the trash
+        (1, [(1, 0, D)], (2, 0), (1, 0)),  # 1: one kid per day
+        (1, [(1, 0, D)], (2, 1), None),  # ... and open again the next day
+        (1, [(1, 0, D)], (1, 1), None),
+        (2, [(1, 0, D)], (2, 1), (1, 0)),  # 2: the next day is closed for another kid
+        (2, [(1, 0, D)], (1, 1), (1, 0)),  # ... and for the kid who did it
+        (2, [(1, 0, D)], (2, 2), None),  # ... and open again the day after
+        (2, [(1, 1, D)], (2, 0), (1, 1)),  # a later completion blocks a late tick before it
+        (2, [(1, 0, R)], (2, 1), None),  # a rejected completion frees it
+        (2, [(1, 0, P)], (2, 1), None),
+        (3, [(1, 0, D), (2, 3, D)], (1, 2), (2, 3)),  # the nearest completion is reported
+        (2, [(1, 6, D)], (2, 7), (1, 6)),  # Sunday blocks Monday of the next week
+        (2, [(1, 0, D), (2, 1, D)], (2, 1), None),  # a done row is never blocked itself
+    ],
+)
+def test_on_cooldown(cooldown_days, rows, asking, blocker):
+    """AC-6.8, D51: done on day D, by any kid → open again on day D + cooldown_days."""
+    chore = _dust(cooldown_days)
+    insts = [
+        replace(snapshot(chore, kid, MON + timedelta(days=day)), status=status)
+        for kid, day, status in rows
+    ]
+    kid, day = asking
+    mine = next(
+        (i for i in insts if (i.kid_id, i.day) == (kid, MON + timedelta(days=day))),
+        snapshot(chore, kid, MON + timedelta(days=day)),
+    )
+    assert mine.cooldown_days == cooldown_days  # copied from the chore (D6)
+    found = on_cooldown(mine, insts)
+    assert (found and (found.kid_id, (found.day - MON).days)) == blocker
+
+
+def test_cooldown_ignores_other_chores_and_spans_the_right_days():
+    """D51: only the same chore counts; a row can be blocked from cooldown_days - 1 days away."""
+    mine = snapshot(_dust(2), 2, MON)
+    other = replace(snapshot(replace(_dust(2), id=9), 1, MON), status=Status.DONE)
+    assert on_cooldown(mine, [other]) is None
+    day = timedelta(days=1)
+    assert cooldown_span(MON, 0) == cooldown_span(MON, 1) == (MON, MON)
+    assert cooldown_span(MON, 3) == (MON - 2 * day, MON + 2 * day)

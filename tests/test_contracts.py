@@ -12,6 +12,7 @@ from custom_components.chores_and_rewards import websocket_api
 from custom_components.chores_and_rewards.const import DOMAIN
 from custom_components.chores_and_rewards.db import DEFAULT_SETTINGS
 from custom_components.chores_and_rewards.logic import (
+    MAX_COOLDOWN_DAYS,
     Actor,
     Balance,
     ChoreType,
@@ -157,3 +158,9 @@ def test_ws_doc_lists_every_audit_action():
 
     doc = (ROOT / "docs/ws-api.md").read_text().split("## Audit actions")[1]
     assert set(re.findall(r"`([a-z_]+)`", doc)) == {a.value for a in AuditAction}
+
+
+def test_panel_states_the_longest_cooldown():
+    """AC-5.7: the chore form's label names the same maximum the server enforces (D51)."""
+    panel = (ROOT / "custom_components/chores_and_rewards/frontend/panel.js").read_text()
+    assert panel.count(f"0–{MAX_COOLDOWN_DAYS} (") == 2  # nb and en

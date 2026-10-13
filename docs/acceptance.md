@@ -21,7 +21,7 @@ IDs follow the spec sections. Tests reference these IDs.
 - AC-5.4 WHEN a bonus chore is not done THEN nothing is lost and it is never marked missed.
 - AC-5.5 WHEN a chore pays a currency on a day after that currency's payout day THEN saving shows a warning but succeeds.
 - AC-5.6 WHEN a chore is edited THEN past instances keep their snapshot.
-- AC-5.7 WHEN a chore is saved as once a day THEN it must be an extra (bonus); an expected chore is refused (D51).
+- AC-5.7 WHEN a chore is saved with a cooldown (0–14 days) THEN it must be an extra (bonus); an expected chore is refused (D51).
 
 ## §6 Daily flow
 - AC-6.1 WHEN a kid taps a chore THEN it is done immediately (no approval) and progress updates live.
@@ -29,7 +29,7 @@ IDs follow the spec sections. Tests reference these IDs.
 - AC-6.3 WHEN HA was off across midnight(s) THEN on startup each missed day is processed in order, exactly once.
 - AC-6.6 WHEN a kid ticks an extra chore THEN it earns one currency: a can't-be-lost currency (payment) is always on offer, a can-be-lost one only while the kid has lost some this week. WHEN there are two options THEN the kid picks; WHEN one THEN no question (D49).
 - AC-6.7 WHEN an extra chore refills a lost currency THEN the balance rises by at most what was lost, and never above the cap (D49).
-- AC-6.8 WHEN one kid has done a once-a-day extra THEN the other kids see it greyed out as taken by that kid and can't tick it (nor can a parent mark it done); untick or reject frees it (D51).
+- AC-6.8 WHEN an extra with a cooldown of N days is done on day D THEN until day D + N nobody else can tick it, on that day or the following ones (nor can a parent mark it done), and it is shown greyed out with who did it and when; untick or reject frees it. N = 1 is one kid per day (D51).
 - AC-6.9 WHEN a chore allows ticking ahead THEN a kid can tick it on any scheduled future day up to the end of next week; it counts in that day's week, follows later edits of the chore, and stays done when the day comes (D52).
 
 ## §7 PIN

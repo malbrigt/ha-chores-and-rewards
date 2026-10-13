@@ -20,6 +20,7 @@ from custom_components.chores_and_rewards.actions import Ctx, ensure_today, set_
 from custom_components.chores_and_rewards.db import Database  # noqa: E402
 from custom_components.chores_and_rewards.logic import (  # noqa: E402
     ChoreType,
+    RuleError,
     Status,
     instances_for_day,
     week_start,
@@ -56,7 +57,12 @@ def main() -> None:
                     continue
                 if inst.type is ChoreType.BONUS and random.random() < 0.5:
                     continue
-                set_done(repo, Ctx(None, day), inst.id, True)
+                try:
+                    set_done(repo, Ctx(None, day), inst.id, True)
+                except RuleError as err:
+                    if err.code != "on_cooldown":
+                        raise
+                    continue  # another kid already did this extra (D51)
                 repo.conn.execute(
                     "UPDATE instances SET status_at = ? WHERE id = ?", [on_time(day), inst.id]
                 )

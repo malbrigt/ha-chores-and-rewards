@@ -53,7 +53,7 @@ def replay(entries: list[dict[str, Any]]) -> dict[str, Any]:
         elif action is A.CHORE_SAVE:
             # Rows logged before schema v2 have neither option (D51, D52).
             st["chores"][eid] = {
-                "once_a_day": False,
+                "cooldown_days": 0,
                 "can_tick_ahead": False,
                 **_without_id(after),
                 "deleted": False,
@@ -65,7 +65,7 @@ def replay(entries: list[dict[str, Any]]) -> dict[str, Any]:
         elif action is A.CLOSE_WEEK:
             st["weeks"][e["day"]] = "closed"
         elif action in (A.INSTANCE_CREATE, A.INSTANCE_UPDATE):
-            st["instances"][eid] = {"once_a_day": False, **_without_id(after)}
+            st["instances"][eid] = {"cooldown_days": 0, **_without_id(after)}
         elif action is A.INSTANCE_DELETE:
             del st["instances"][eid]
         elif action in STATUS_ACTIONS:

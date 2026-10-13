@@ -281,44 +281,114 @@ async def test_extra_pays_or_refills_a_loss(hass, ws, freezer):
     assert '"currency_id": 1' in log[0]["after"]
 
 
-async def test_once_a_day_extra_goes_to_the_first_kid(ws):
-    """AC-6.8, AC-5.7, D51: one kid takes a once-a-day extra; others see who, and can't."""
+EXTRA = {"chore_type": "bonus", "slot": "anytime", "weekdays": [], "values": {MONEY: 10}}
+
+
+async def _dusting(ws, cooldown_days):
+    """Ada and Bo share "Dust" (every day, 10 kr) with a cooldown, and a "Trash" without."""
     token = await unlock(ws)
     ada = (await ok(ws, "admin/kid/save", token=token, name="Ada"))["id"]
     bo = (await ok(ws, "admin/kid/save", token=token, name="Bo"))["id"]
-    extra = {"chore_type": "bonus", "slot": "anytime", "weekdays": [], "values": {MONEY: 10}}
-    dust = chore([ada, bo], name="Dust", once_a_day=True, **extra)
+    dust = chore([ada, bo], name="Dust", cooldown_days=cooldown_days, **EXTRA)
     await ok(ws, "admin/chore/save", token=token, **dust)
-    await ok(ws, "admin/chore/save", token=token, **chore([ada, bo], name="Trash", **extra))
-    assert (
-        await err(ws, "admin/chore/save", token=token, **chore([ada], name="Bed", once_a_day=True))
-        == "not_allowed"
-    )  # an expected chore is every kid's own
+    await ok(ws, "admin/chore/save", token=token, **chore([ada, bo], name="Trash", **EXTRA))
+    return token, ada, bo
 
-    async def row(kid, name):
-        return next(i for i in (await kid_board(ws, kid))["bonus"] if i["name"] == name)
 
-    await ok(ws, "set_done", instance_id=(await row(ada, "Dust"))["id"], done=True)
-    bo_dust = await row(bo, "Dust")
-    assert (bo_dust["taken_by"], (await row(ada, "Dust"))["taken_by"]) == (ada, None)
-    assert await err(ws, "set_done", instance_id=bo_dust["id"], done=True) == "taken"
+async def _extra(ws, kid, name="Dust", **kw):
+    return next(i for i in (await kid_board(ws, kid, **kw))["bonus"] if i["name"] == name)
+
+
+async def test_cooldown_of_one_day_goes_to_the_first_kid(ws):
+    """AC-6.8, AC-5.7, D51: with 1, one kid takes the extra that day; others see who."""
+    token, ada, bo = await _dusting(ws, 1)
+    for bad, code in [
+        (chore([ada], name="Bed", cooldown_days=1), "not_allowed"),  # expected: every kid's own
+        (chore([ada], name="Often", cooldown_days=15, **EXTRA), "invalid_format"),
+    ]:
+        assert await err(ws, "admin/chore/save", token=token, **bad) == code
+
+    await ok(ws, "set_done", instance_id=(await _extra(ws, ada))["id"], done=True)
+    bo_dust = await _extra(ws, bo)
+    assert bo_dust["cooldown"] == {"kid_id": ada, "day": "2026-10-12"}
+    assert (await _extra(ws, ada))["cooldown"] is None  # the done row itself
+    assert await err(ws, "set_done", instance_id=bo_dust["id"], done=True) == "on_cooldown"
     assert (
         await err(ws, "parent/set_status", token=token, instance_id=bo_dust["id"], status="done")
-        == "taken"
+        == "on_cooldown"
     )
+    # Tomorrow's preview is open again for both.
+    for kid in (ada, bo):
+        assert (await _extra(ws, kid, day="2026-10-13"))["cooldown"] is None
 
-    # The trash (setting off) is open to every kid.
-    await ok(ws, "set_done", instance_id=(await row(ada, "Trash"))["id"], done=True)
-    await ok(ws, "set_done", instance_id=(await row(bo, "Trash"))["id"], done=True)
+    # The trash (no cooldown) is open to every kid.
+    await ok(ws, "set_done", instance_id=(await _extra(ws, ada, "Trash"))["id"], done=True)
+    await ok(ws, "set_done", instance_id=(await _extra(ws, bo, "Trash"))["id"], done=True)
 
     # A parent reject frees it again; so does an untick.
-    ada_dust = await row(ada, "Dust")
+    ada_dust = await _extra(ws, ada)
     await ok(ws, "parent/set_status", token=token, instance_id=ada_dust["id"], status="rejected")
-    assert (await row(bo, "Dust"))["taken_by"] is None
+    assert (await _extra(ws, bo))["cooldown"] is None
     await ok(ws, "set_done", instance_id=bo_dust["id"], done=True)
-    assert (await row(ada, "Dust"))["taken_by"] == bo
+    assert (await _extra(ws, ada))["cooldown"] == {"kid_id": bo, "day": "2026-10-12"}
     await ok(ws, "set_done", instance_id=bo_dust["id"], done=False)
-    assert (await row(ada, "Dust"))["taken_by"] is None
+    assert (await _extra(ws, ada))["cooldown"] is None
+
+
+async def test_cooldown_of_two_days_closes_the_next_day(hass, ws, freezer):
+    """AC-6.8, D51: done Monday → closed Tuesday for everyone, open again Wednesday."""
+    token, ada, bo = await _dusting(ws, 2)
+    monday = {"kid_id": ada, "day": "2026-10-12"}
+    ada_mon = await _extra(ws, ada)
+    await ok(ws, "set_done", instance_id=ada_mon["id"], done=True)
+    # Tomorrow's preview already shows it closed, also for Ada herself.
+    for kid in (ada, bo):
+        preview = await _extra(ws, kid, day="2026-10-13")
+        assert (preview["id"], preview["cooldown"]) == (None, monday)
+
+    await midnight(hass, freezer, 13, 10)  # Tuesday
+    for kid in (ada, bo):
+        tue = await _extra(ws, kid)
+        assert tue["cooldown"] == monday
+        assert await err(ws, "set_done", instance_id=tue["id"], done=True) == "on_cooldown"
+    ada_tue, bo_tue = await _extra(ws, ada), await _extra(ws, bo)
+    assert (
+        await err(ws, "parent/set_status", token=token, instance_id=bo_tue["id"], status="done")
+        == "on_cooldown"
+    )
+    grid = (await ok(ws, "get_week", kid_id=bo))["rows"]
+    dust = next(r for r in grid if r["name"] == "Dust")
+    assert dust["cooldown"] == {"2026-10-12": monday, "2026-10-13": monday}
+    assert next(r for r in grid if r["name"] == "Trash")["cooldown"] == {}
+
+    await midnight(hass, freezer, 14, 10)  # Wednesday: open again
+    bo_wed = await _extra(ws, bo)
+    assert bo_wed["cooldown"] is None
+    await ok(ws, "set_done", instance_id=bo_wed["id"], done=True)
+
+    # A late tick for Tuesday is blocked from both sides: Monday before, Wednesday after.
+    assert await err(ws, "set_done", instance_id=ada_tue["id"], done=True) == "on_cooldown"
+    await ok(ws, "parent/set_status", token=token, instance_id=ada_mon["id"], status="rejected")
+    assert await err(ws, "set_done", instance_id=ada_tue["id"], done=True) == "on_cooldown"
+    await ok(ws, "set_done", instance_id=bo_wed["id"], done=False)
+    await ok(ws, "set_done", instance_id=ada_tue["id"], done=True)  # nothing nearby is done
+
+
+async def test_cooldown_spans_the_week_close(hass, ws, freezer):
+    """D51: done Sunday with a 2-day cooldown → closed on Monday of the new week."""
+    _, ada, bo = await _dusting(ws, 2)
+    await midnight(hass, freezer, 18, 10)  # Sunday
+    await ok(ws, "set_done", instance_id=(await _extra(ws, ada))["id"], done=True)
+
+    await midnight(hass, freezer, 19, 10)  # Monday: last week is closed
+    state = await ok(ws, "get_state")
+    assert (state["week"], state["week_status"]) == ("2026-10-19", "open")
+    bo_mon = await _extra(ws, bo)
+    assert bo_mon["cooldown"] == {"kid_id": ada, "day": "2026-10-18"}
+    assert await err(ws, "set_done", instance_id=bo_mon["id"], done=True) == "on_cooldown"
+
+    await midnight(hass, freezer, 20, 10)  # Tuesday: open again
+    await ok(ws, "set_done", instance_id=(await _extra(ws, bo))["id"], done=True)
 
 
 async def _homework(ws, **kw):
