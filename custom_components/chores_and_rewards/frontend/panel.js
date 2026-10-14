@@ -803,6 +803,7 @@ const STYLES = `
   .meter-label .lost { color: var(--error-color); font-size: 0.85rem; }
   .chore .earned { margin-left: auto; color: var(--secondary-text-color); font-size: 0.85rem; }
   .chore.cooldown { opacity: 0.5; }
+  .chore.cooldown .name { text-decoration: line-through; } /* not for you right now (D51) */
   ha-icon { --mdc-icon-size: 20px; }
   .bar { height: 10px; border-radius: 5px; background: var(--divider-color); overflow: hidden; margin-top: 3px; }
   .fill { height: 100%; background: var(--primary-color); border-radius: 5px; }
@@ -2001,11 +2002,11 @@ export class ChoresPanel extends Base {
     const box = inst.status === "pending" ? "" : cellSymbol(inst.status);
     const earned = cooldown
       ? html`<span class="earned">${cooldownText(cooldown, inst.day, this._kidName(cooldown.kid_id) || t(L, "someone"), L)}</span>`
-      : this._earnedTag(inst);
+      : this._valueTag(inst);
     return html`<div class="row">
       <button class="chore ${inst.status}${cooldown ? " cooldown" : ""}" data-action="toggle" ${this._target(inst)} role="checkbox"
         aria-checked="${inst.status === "done" ? "true" : "false"}" ${tappable ? "" : raw("disabled")}>
-        <span class="box" aria-hidden="true">${box}</span><span>${inst.name}</span>${earned}${late}
+        <span class="box" aria-hidden="true">${box}</span><span class="name">${inst.name}</span>${earned}${late}
       </button>${more}
     </div>`;
   }
@@ -2017,12 +2018,22 @@ export class ChoresPanel extends Base {
       : html`data-kid="${inst.kid_id}" data-chore="${inst.chore_id}" data-day="${inst.day}"`;
   }
 
-  /** "+10 min" on a done extra chore: the currency the kid picked (D49). */
-  _earnedTag(inst) {
-    if (inst.type !== "bonus" || inst.status !== "done" || inst.currency_id == null) return "";
-    const c = this._state.currencies.find((x) => x.id === inst.currency_id);
-    const value = inst.values?.[String(inst.currency_id)];
-    return c && value ? html`<span class="earned">+${formatAmount(value, c, this._lang)}</span>` : "";
+  /**
+   * What an extra chore pays, always shown so nobody ticks just to find out: "+10 kr", or
+   * "+10 kr / +10 min" while lost screen time can be won back (the options a tap offers,
+   * D49). A done extra shows the currency the kid picked.
+   */
+  _valueTag(inst) {
+    if (inst.type !== "bonus") return "";
+    let ids = [];
+    if (inst.status === "done") ids = inst.currency_id == null ? [] : [inst.currency_id];
+    else if (inst.status === "pending") ids = this._earnOptions(inst);
+    const parts = ids.flatMap((id) => {
+      const c = this._state.currencies.find((x) => x.id === id);
+      const value = inst.values?.[String(id)];
+      return c && value ? [`+${formatAmount(value, c, this._lang)}`] : [];
+    });
+    return parts.length ? html`<span class="earned">${parts.join(" / ")}</span>` : "";
   }
 
   _meters(balances) {

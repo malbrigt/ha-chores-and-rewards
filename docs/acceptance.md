@@ -29,7 +29,7 @@ IDs follow the spec sections. Tests reference these IDs.
 - AC-6.3 WHEN HA was off across midnight(s) THEN on startup each missed day is processed in order, exactly once.
 - AC-6.6 WHEN a kid ticks an extra chore THEN it earns one currency: a can't-be-lost currency (payment) is always on offer, a can-be-lost one only while the kid has lost some this week. WHEN there are two options THEN the kid picks; WHEN one THEN no question (D49).
 - AC-6.7 WHEN an extra chore refills a lost currency THEN the balance rises by at most what was lost, and never above the cap (D49).
-- AC-6.8 WHEN an extra with a cooldown of N days is done on day D THEN until day D + N nobody else can tick it, on that day or the following ones (nor can a parent mark it done), and it is shown greyed out with who did it and when; untick or reject frees it. N = 1 is one kid per day (D51).
+- AC-6.8 WHEN an extra with a cooldown of N days is done on day D THEN until day D + N nobody else can tick it, on that day or the following ones (nor can a parent mark it done), and it is shown greyed out and struck through, with who did it and when; untick or reject frees it. N = 1 is one kid per day (D51).
 - AC-6.9 WHEN a chore allows ticking ahead THEN a kid can tick it on any scheduled future day up to the end of next week; it counts in that day's week, follows later edits of the chore, and stays done when the day comes (D52).
 
 ## §7 PIN
@@ -47,6 +47,7 @@ IDs follow the spec sections. Tests reference these IDs.
 - AC-8.3 The weekly view shows Mon–Sun columns with done/missed per chore. It returns to the daily view after idle.
 - AC-8.4 WHEN the screen wakes from idle AND the reminder is enabled THEN "Clean hands?" shows first; one tap continues.
 - AC-8.5 The UI language follows HA (nb or en), with en as fallback.
+- AC-8.6 Each open extra shows what it pays ("+10 kr", or "+10 kr / +10 min" while lost screen time can be won back), so nobody has to tick it to find out; a done one shows what it earned.
 
 ## §9 Settlement
 - AC-9.1 WHEN it is a currency's payout day THEN the PIN view shows the amount per kid and lets the parent tick "paid" or "entered".

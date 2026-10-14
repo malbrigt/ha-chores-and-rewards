@@ -294,6 +294,9 @@ test("extra chore: lost screen time → pick pay or win back; nothing lost → p
   state.board[1].bonus[0].values = { 1: 10, 2: 1 };
   state.board[1].balances = { 1: { ...balance, lost: 10, refilled: 0 }, 2: { ...balance, cap: null } };
   const { root, hass } = await mount(state);
+  // What it pays is shown before any tap: the same options the tap offers (AC-8.6).
+  const pays = (r) => r.querySelector('[data-action="toggle"][data-id="3"] .earned')?.textContent.trim();
+  assert.equal(pays(root), "+1 kr / +10 min");
   click(root, '[data-action="toggle"][data-id="3"]');
   await tick();
   const items = [...root.querySelectorAll('[data-action="sheet-item"]')].map((b) => b.textContent.trim());
@@ -306,6 +309,7 @@ test("extra chore: lost screen time → pick pay or win back; nothing lost → p
 
   state.board[1].balances[1].refilled = 10; // all won back: only payment is left
   const second = await mount(state);
+  assert.equal(pays(second.root), "+1 kr");
   click(second.root, '[data-action="toggle"][data-id="3"]');
   await tick();
   assert.equal(second.root.querySelector('[data-action="sheet-item"]'), null);
@@ -348,6 +352,10 @@ test("an extra on cooldown is greyed out with who did it and when (AC-6.8, D51)"
     assert.ok(row(id).hasAttribute("disabled"), "can't be ticked");
   }
   assert.ok(row(5).textContent.includes("Tatt av Ada"), "done today by another kid");
+  assert.ok(!row(5).textContent.includes("+"), "the reason replaces what it pays");
+  // Struck through, so an 8-year-old sees at a glance it isn't theirs today.
+  assert.ok(row(5).querySelector(".name"));
+  assert.match(root.querySelector("style").textContent, /\.chore\.cooldown \.name \{ text-decoration: line-through; \}/);
   assert.match(row(6).textContent, /Gjort tor\.? av Ada/, "done yesterday");
   assert.ok(!row(7).hasAttribute("disabled") && !row(7).classList.contains("cooldown"));
 });

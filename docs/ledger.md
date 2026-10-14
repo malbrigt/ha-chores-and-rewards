@@ -571,3 +571,8 @@ The panel URL was `panel.js?v=<version>`. Going back to 0.1.0 reused an old URL,
 
 ## Release v0.2.0 (user go-ahead)
 Manifest version 0.2.0, a new release (the earlier v0.2.0 was deleted in step 16). Since v0.1.0: cooldown for extras (D51), tick ahead (D52), the divider fix, and the E2E service-worker fix. First real migration for a live install: schema v1 → v2, with a backup first.
+
+## Step 20: extras show what they pay; cooldown rows struck through (user request)
+- Kids ticked and unticked extras just to see the amount. An open extra now always shows what it pays, the same options a tap offers (D49): "+10 kr", or "+10 kr / +10 min" while lost screen time can be won back.
+- "Taken by Ada" alone was too subtle for an 8-year-old; the chore name on a row on cooldown is now struck through as well.
+- Doc fix: `ui-layout.md` still described future days as read-only and showed the removed dashed divider.

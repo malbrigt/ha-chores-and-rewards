@@ -46,8 +46,9 @@ Fields: name, icon, description; type (expected/bonus); assigned kids; weekdays;
 - Allowance-focused; earns up to the weekly maximum.
 - Earns **one** currency. A currency that can't be lost is payment. One that can be lost is offered only to **win back** what was lost this week, never more. If both are on offer, the kid picks ("1 €, or win back 10 min?"); otherwise the tap just ticks.
 - Muted section below expected chores. No highlighting or counters.
+- Each shows what it pays ("+10 kr"; "+10 kr / +10 min" while lost screen time can be won back), so nobody ticks just to find out.
 - Always available; not locked behind expected chores.
-- **Cooldown** (optional per extra, in days): once any kid has done it, it can be done again N days later. 1 = one kid per day; 2 = done Thursday, closed Friday. A chore meant for "Thursday or Friday" is scheduled on both days with 2. The others see "Taken by Ada" or "Done Thu by Ada". 0 for chores like the trash, which every kid can do.
+- **Cooldown** (optional per extra, in days): once any kid has done it, it can be done again N days later. 1 = one kid per day; 2 = done Thursday, closed Friday. A chore meant for "Thursday or Friday" is scheduled on both days with 2. The others see it greyed out and struck through, with "Taken by Ada" or "Done Thu by Ada". 0 for chores like the trash, which every kid can do.
 
 **Scheduling after payout**
 - Scheduling a chore that pays a currency on a day after that currency's payout day shows a warning. It is not blocked.

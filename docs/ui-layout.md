@@ -14,16 +14,17 @@ The screen is a landscape kitchen tablet. There are 3 kids, 2 of whom mainly use
 │ [✓] Re opp sengen │ [ ] Re opp sengen │ [ ] Re opp sengen    │
 │ ETTERMIDDAG       │ ETTERMIDDAG       │ ETTERMIDDAG          │
 │ [✓] Dekke bordet  │ [ ] Oppvask       │ [ ] Mate katten      │
-│ - - - - - - - - - │ - - - - - - - - - │ - - - - - - - - -    │
-│ ekstra (muted)    │ ekstra (muted)    │ ekstra (muted)       │
-│ ( ) Vaske vinduer │ ( ) Vaske vinduer │ ( ) Rydde garasjen   │
+│ EKSTRA (muted)    │ EKSTRA (muted)    │ EKSTRA (muted)       │
+│ ( ) Vinduer +50 kr│ ( ) Vinduer +50 kr│ ( ) Garasjen  +20 kr │
+│ ( ) Støv  Tatt av…│ (✓) Støv    +10 kr│ ( ) Støv  Tatt av Bo │
 └───────────────────┴───────────────────┴──────────────────────┘
 ```
 - One column per kid. The whole chore row is the tap target.
+- Each extra shows what it pays. One on cooldown is greyed out and struck through, with who did it (D51).
 - Tapping a kid's name opens that kid's week.
 - Header: `‹ Fredag 9. okt ›`, plus an "I dag" button when another day is shown.
   - You can move between days within the current Mon–Sun week.
-  - Past days are read-only for kids. Future days are a read-only preview of the schedule.
+  - Kids can tick any day of the open week (D8). Future days are a preview of the schedule; only chores that can be ticked ahead are tappable there (D52).
   - Idle returns to today.
 
 ## Kid week (tap a name)
