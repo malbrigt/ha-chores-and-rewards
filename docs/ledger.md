@@ -568,3 +568,6 @@ The panel URL was `panel.js?v=<version>`. Going back to 0.1.0 reused an old URL,
 - `dev_backfill` skips an extra on cooldown (it would have stopped on the seeded once-a-day chores).
 - Not changed: a pot cap still counts every scheduled day of an extra.
 - **E2E:** blocking HA's service worker in Playwright (step 18) made HA's own startup code throw a page error. The test tablets now report no service-worker support instead, which HA handles: no reload and no error.
+
+## Release v0.2.0 (user go-ahead)
+Manifest version 0.2.0, a new release (the earlier v0.2.0 was deleted in step 16). Since v0.1.0: cooldown for extras (D51), tick ahead (D52), the divider fix, and the E2E service-worker fix. First real migration for a live install: schema v1 → v2, with a backup first.
